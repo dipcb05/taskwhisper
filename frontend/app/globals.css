@@ -1,0 +1,239 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* TaskWhisper Light Theme - Clean Productivity */
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.15 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  --primary: oklch(0.55 0.2 250);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.95 0.01 250);
+  --muted-foreground: oklch(0.5 0 0);
+  --accent: oklch(0.65 0.25 160);
+  --accent-foreground: oklch(0.1 0 0);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.55 0.2 250);
+  --chart-1: oklch(0.55 0.2 250);
+  --chart-2: oklch(0.65 0.25 160);
+  --chart-3: oklch(0.7 0.2 45);
+  --chart-4: oklch(0.6 0.22 320);
+  --chart-5: oklch(0.75 0.18 80);
+  --radius: 0.75rem;
+
+  /* Neon accents for AI Lab mode */
+  --neon-cyan: oklch(0.85 0.2 195);
+  --neon-green: oklch(0.85 0.25 145);
+  --neon-pink: oklch(0.75 0.25 350);
+  --neon-blue: oklch(0.7 0.2 260);
+
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.55 0.2 250);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.95 0.01 250);
+  --sidebar-accent-foreground: oklch(0.2 0 0);
+  --sidebar-border: oklch(0.9 0 0);
+  --sidebar-ring: oklch(0.55 0.2 250);
+}
+
+.dark {
+  /* TaskWhisper Dark/AI Lab Theme - Futuristic Neon */
+  --background: oklch(0.1 0.02 260);
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.14 0.02 260);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.12 0.02 260);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: oklch(0.75 0.2 195);
+  --primary-foreground: oklch(0.1 0 0);
+  --secondary: oklch(0.2 0.02 260);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.2 0.02 260);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.75 0.25 145);
+  --accent-foreground: oklch(0.1 0 0);
+  --destructive: oklch(0.55 0.25 25);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.25 0.03 260);
+  --input: oklch(0.18 0.02 260);
+  --ring: oklch(0.75 0.2 195);
+  --chart-1: oklch(0.75 0.2 195);
+  --chart-2: oklch(0.75 0.25 145);
+  --chart-3: oklch(0.65 0.25 350);
+  --chart-4: oklch(0.7 0.2 260);
+  --chart-5: oklch(0.8 0.18 80);
+
+  --neon-cyan: oklch(0.85 0.2 195);
+  --neon-green: oklch(0.85 0.25 145);
+  --neon-pink: oklch(0.75 0.25 350);
+  --neon-blue: oklch(0.7 0.2 260);
+
+  --sidebar: oklch(0.12 0.02 260);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.75 0.2 195);
+  --sidebar-primary-foreground: oklch(0.1 0 0);
+  --sidebar-accent: oklch(0.2 0.02 260);
+  --sidebar-accent-foreground: oklch(0.9 0 0);
+  --sidebar-border: oklch(0.25 0.03 260);
+  --sidebar-ring: oklch(0.75 0.2 195);
+}
+
+@theme inline {
+  --font-sans: "Geist", "Geist Fallback", system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-green: var(--neon-green);
+  --color-neon-pink: var(--neon-pink);
+  --color-neon-blue: var(--neon-blue);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Grid background for AI Lab mode */
+.grid-background {
+  background-image: linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Glow effects */
+.glow-cyan {
+  box-shadow: 0 0 20px oklch(0.85 0.2 195 / 0.4), 0 0 40px oklch(0.85 0.2 195 / 0.2);
+}
+
+.glow-green {
+  box-shadow: 0 0 20px oklch(0.85 0.25 145 / 0.4), 0 0 40px oklch(0.85 0.25 145 / 0.2);
+}
+
+.glow-pink {
+  box-shadow: 0 0 20px oklch(0.75 0.25 350 / 0.4), 0 0 40px oklch(0.75 0.25 350 / 0.2);
+}
+
+/* Neon text glow */
+.text-glow-cyan {
+  text-shadow: 0 0 10px oklch(0.85 0.2 195 / 0.8), 0 0 20px oklch(0.85 0.2 195 / 0.4);
+}
+
+.text-glow-green {
+  text-shadow: 0 0 10px oklch(0.85 0.25 145 / 0.8), 0 0 20px oklch(0.85 0.25 145 / 0.4);
+}
+
+/* Pulse animation for active states */
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Waveform animation */
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* Bottom sheet animation */
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Scanline effect for AI Lab */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    oklch(0 0 0 / 0.03) 2px,
+    oklch(0 0 0 / 0.03) 4px
+  );
+  pointer-events: none;
+}
+
+@keyframes scan {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(100%); }
+}
+
+@keyframes loading-bar {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(20%); }
+  100% { transform: translateX(120%); }
+}
