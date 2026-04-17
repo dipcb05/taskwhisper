@@ -20,14 +20,14 @@ const voiceProviders = [
   { id: "openai", name: "OpenAI", models: ["whisper-1"] },
   { id: "groq", name: "Groq", models: ["whisper-large-v3", "distil-whisper-large-v3-en"] },
   { id: "google", name: "Google", models: ["gemini-1.5-flash"] },
-  { id: "mcp", name: "Custom MCP Server", models: ["dynamic"] },
+  { id: "mcp", name: "Custom MCP", models: ["dynamic"] },
 ]
 
 const composerProviders = [
   { id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini"] },
   { id: "anthropic", name: "Anthropic", models: ["claude-3-5-sonnet-latest", "claude-3-opus-latest"] },
   { id: "google", name: "Google", models: ["gemini-1.5-pro", "gemini-1.5-flash"] },
-  { id: "mcp", name: "Custom MCP Server", models: ["dynamic"] },
+  { id: "mcp", name: "Custom MCP", models: ["dynamic"] },
 ]
 
 export default function SettingsPage() {

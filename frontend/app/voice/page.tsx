@@ -54,62 +54,8 @@ export default function VoicePage() {
       .replace(/\s+([,.!?])/g, "$1")
       .trim()
 
-  const inferPriority = (text: string): "high" | "medium" | "low" => {
-    if (/(urgent|asap|immediately|critical)/i.test(text)) return "high"
-    if (/(today|tomorrow|deadline|friday|monday|tuesday|wednesday|thursday|saturday|sunday|soon)/i.test(text)) {
-      return "medium"
-    }
-    return "low"
-  }
-
-  const detectDueDate = (text: string) => {
-    const match = text.match(
-      /\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
-    )
-    return match ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase() : undefined
-  }
-
-  const extractTasks = (text: string) => {
-    const sentences = text
-      .split(/[.!?]+/)
-      .map((sentence) => sentence.trim())
-      .filter(Boolean)
-
-    const fragments = sentences.flatMap((sentence) =>
-      sentence
-        .split(/\band\b/i)
-        .map((fragment) => fragment.trim())
-        .filter(Boolean),
-    )
-
-    const unique = Array.from(new Set(fragments.length ? fragments : [text]))
-    return unique.slice(0, 8).map((taskText) => {
-      const cleaned = taskText.replace(/[,:;]+$/g, "")
-      return {
-        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        text: cleaned.charAt(0).toUpperCase() + cleaned.slice(1),
-        completed: false,
-        priority: inferPriority(cleaned),
-        dueDate: detectDueDate(cleaned),
-      }
-    })
-  }
-
   const processTranscript = useCallback(
-    async (transcript: string, duration: number, audioUrl?: string) => {
-      const trimmed = transcript.trim()
-      if (!trimmed) {
-        setError(
-          supportsSpeechRecognition
-            ? "No speech detected. Try speaking a bit longer or in a quieter environment."
-            : "Speech recognition is not supported in this browser. Try Chrome or Edge.",
-        )
-        setCurrentStep(null)
-        setCompletedSteps([])
-        setStage("record")
-        return
-      }
-
+    async (blob: Blob | null, fallBackTranscript: string, duration: number, audioUrl?: string) => {
       setError(null)
       setStage("processing")
       setCurrentStep("uploading")
@@ -118,6 +64,41 @@ export default function VoicePage() {
       setCompletedSteps(["uploading"])
 
       setCurrentStep("transcribing")
+      let transcriptText = fallBackTranscript.trim()
+
+      if (blob && settings.voiceProvider.apiKey) {
+        try {
+          const formData = new FormData()
+          formData.append("file", blob)
+          formData.append("provider", settings.voiceProvider.provider)
+          formData.append("model", settings.voiceProvider.model)
+          formData.append("apiKey", settings.voiceProvider.apiKey)
+
+          const sttRes = await fetch("/api/transcribe", { method: "POST", body: formData })
+          if (sttRes.ok) {
+            const sttData = await sttRes.json()
+            if (sttData.text) {
+              transcriptText = sttData.text.trim()
+            }
+          }
+        } catch (err) {
+          console.error("Transcription API failed, using fallback transcript.", err)
+        }
+      }
+
+      const trimmed = transcriptText.trim()
+      if (!trimmed) {
+        setError(
+          supportsSpeechRecognition
+            ? "No speech detected. Try speaking a bit longer or in a quieter environment."
+            : "Speech recognition is not supported in this browser. Try Chrome or Edge."
+        )
+        setCurrentStep(null)
+        setCompletedSteps([])
+        setStage("record")
+        return
+      }
+
       await delay(400)
       setCompletedSteps(["uploading", "transcribing"])
 
@@ -127,7 +108,35 @@ export default function VoicePage() {
       setCompletedSteps(["uploading", "transcribing", "cleaning"])
 
       setCurrentStep("extracting")
-      const tasks = extractTasks(cleanedText)
+      let tasks = []
+      try {
+        const response = await fetch("/api/extract-tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: cleanedText,
+            provider: settings.taskComposer.provider,
+            model: settings.taskComposer.model,
+            apiKey: settings.taskComposer.apiKey,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || "Failed to extract tasks")
+        }
+
+        const data = await response.json()
+        tasks = data.tasks
+      } catch (err: any) {
+        console.error("AI Extraction failed:", err)
+        setError("AI Extraction failed: " + err.message + ". Please verify your API key in Settings.")
+        setCurrentStep(null)
+        setCompletedSteps([])
+        setStage("record")
+        return
+      }
+      
       await delay(200)
       setCompletedSteps(["uploading", "transcribing", "cleaning", "extracting"])
       setCurrentStep(null)
@@ -148,13 +157,13 @@ export default function VoicePage() {
       addVoiceNote(newNote)
       setStage("result")
     },
-    [addVoiceNote, supportsSpeechRecognition],
+    [addVoiceNote, supportsSpeechRecognition, settings.taskComposer, settings.voiceProvider],
   )
 
   const handleRecordingComplete = useCallback(
     async (blob: Blob, duration: number, transcript: string) => {
       const audioUrl = URL.createObjectURL(blob)
-      await processTranscript(transcript, duration, audioUrl)
+      await processTranscript(blob, transcript, duration, audioUrl)
     },
     [processTranscript],
   )

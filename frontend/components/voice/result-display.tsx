@@ -55,6 +55,14 @@ export function ResultDisplay({ note, onTaskToggle, className }: ResultDisplayPr
           {note.createdAt.toLocaleDateString()} • {Math.floor(note.duration / 60)}:
           {(note.duration % 60).toString().padStart(2, "0")}
         </p>
+        <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border/50">
+          <p className="text-sm text-foreground/80 italic">"{note.rawTranscription}"</p>
+        </div>
+        {note.audioUrl && (
+          <div className="mt-4">
+            <audio controls src={note.audioUrl} className="w-full h-10 rounded-lg outline-none" />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="tasks" className="w-full">
