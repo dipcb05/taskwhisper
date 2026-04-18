@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label"
 import { useLocalStore } from "@/lib/local-store"
 import { useToast } from "@/hooks/use-toast"
+import { apiFetch } from "@/lib/api"
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
@@ -27,9 +28,9 @@ export function ModelSelector() {
     const fetchModels = async () => {
       setIsLoading(true)
       try {
-        const response = await fetch("/api/models", {
+        const response = await apiFetch(`/api/providers/${modelSettings.provider || "openai"}/models`, {
+          requireAuth: true,
           headers: {
-            "x-provider": modelSettings.provider || "openai",
             "x-api-key": (apiKeys as any)[modelSettings.provider || "openai"] || "",
           },
         })

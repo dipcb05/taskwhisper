@@ -6,9 +6,6 @@ import time
 from datetime import datetime
 from typing import Any
 
-from bson import ObjectId
-from fastapi import UploadFile
-
 from ..core.cache import cache
 from ..core.config import get_settings
 from ..core import db as db_module
@@ -42,7 +39,7 @@ class PipelineService:
         event = {"stage": stage, "status": status, "output": output, "error": error, "elapsed_ms": elapsed}
         await self.events.emit(job_id, event)
         await db_module.get_db()[Job.collection].update_one(
-            {"_id": ObjectId(job_id)},
+            {"_id": job_id},
             {"$push": {"events": event}, "$set": {"updated_at": datetime.utcnow()}},
         )
 
@@ -64,11 +61,11 @@ class PipelineService:
         try:
             cached = await CachedResult.get(db, hash_value=audio_hash, config_hash=config_hash)
             if cached:
-                await Job.save_result(db, ObjectId(job_id), cached["result"])
+                await Job.save_result(db, job_id, cached["result"])
                 await self._emit(job_id, "cache", "completed", output={"cached": True})
                 return
 
-            await Job.update_status(db, ObjectId(job_id), JobStatus.PROCESSING)
+            await Job.update_status(db, job_id, JobStatus.PROCESSING)
             cleanup_adapter = self.cleanup_adapters.get(options.cleaning_engine)
             if not cleanup_adapter:
                 raise ServiceError("voice_cleanup", "Unknown cleaning engine", code="unknown_engine")
@@ -118,13 +115,13 @@ class PipelineService:
 
             result_payload["exports"] = export_outputs
             await CachedResult.save(db, audio_hash, config_hash, result_payload)
-            await Job.save_result(db, ObjectId(job_id), result_payload)
+            await Job.save_result(db, job_id, result_payload)
         except ServiceError as err:
-            await Job.update_status(db, ObjectId(job_id), JobStatus.FAILED)
+            await Job.update_status(db, job_id, JobStatus.FAILED)
             logger.exception("Pipeline failed: %s", err)
         except Exception as exc:
             await self._emit(job_id, "pipeline", "failed", error={"message": str(exc)})
-            await Job.update_status(db, ObjectId(job_id), JobStatus.FAILED)
+            await Job.update_status(db, job_id, JobStatus.FAILED)
             logger.exception("Unexpected pipeline error")
 
     def _hash_config(self, options: PipelineOptions) -> str:

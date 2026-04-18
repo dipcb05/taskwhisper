@@ -1,9 +1,6 @@
 import asyncio
 import hashlib
 import logging
-from typing import Any
-
-from bson import ObjectId
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi import Request, status
 
@@ -34,7 +31,7 @@ async def create_job(
     pipeline = request.app.state.pipeline  # type: ignore
     file_path = await pipeline.save_upload(data, file.filename, job_id)
     asyncio.create_task(pipeline.run_job(job_id, user.uid, file_path, parsed_options, audio_hash))
-    job_doc = await db.get_db()[Job.collection].find_one({"_id": ObjectId(job_id)})
+    job_doc = await db.get_db()[Job.collection].find_one({"_id": job_id})
     return JobResponse(
         id=str(job_doc["_id"]),
         status=job_doc["status"],
@@ -47,7 +44,7 @@ async def create_job(
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(job_id: str, user=Depends(get_current_user)) -> JobResponse:
-    doc = await db.get_db()[Job.collection].find_one({"_id": ObjectId(job_id), "user_id": user.uid})
+    doc = await db.get_db()[Job.collection].find_one({"_id": job_id, "user_id": user.uid})
     if not doc:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobResponse(

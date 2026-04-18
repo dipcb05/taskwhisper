@@ -20,6 +20,27 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
+  const establishSession = async (idToken: string) => {
+    const response = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ idToken }),
+    })
+
+    if (!response.ok) {
+      let message = "Failed to create login session"
+      try {
+        const payload = await response.json()
+        message = payload.error || message
+      } catch {
+        // Ignore non-JSON error bodies.
+      }
+      throw new Error(message)
+    }
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -28,11 +49,9 @@ export default function LoginPage() {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const idToken = await userCredential.user.getIdToken()
-      await fetch("/api/auth/session", {
-        method: "POST",
-        body: JSON.stringify({ idToken }),
-      })
-      router.push("/dashboard")
+      await establishSession(idToken)
+      router.refresh()
+      window.location.assign("/dashboard")
     } catch (error: any) {
       setError(error?.message || "An error occurred during sign in")
     } finally {
@@ -47,11 +66,9 @@ export default function LoginPage() {
     try {
       const userCredential = await signInWithPopup(auth, provider)
       const idToken = await userCredential.user.getIdToken()
-      await fetch("/api/auth/session", {
-        method: "POST",
-        body: JSON.stringify({ idToken }),
-      })
-      router.push("/dashboard")
+      await establishSession(idToken)
+      router.refresh()
+      window.location.assign("/dashboard")
     } catch (error: any) {
       setError(error?.message || "An error occurred during Google sign in")
     } finally {

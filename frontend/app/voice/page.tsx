@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Check, Mic, Sparkles } from "@/lib/icons"
+import { apiFetch } from "@/lib/api"
 import Link from "next/link"
 
 type Stage = "record" | "processing" | "result"
@@ -47,117 +48,128 @@ export default function VoicePage() {
 
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-  const cleanTranscript = (text: string) =>
-    text
-      .replace(/\b(um+|uh+|like|you know|i mean)\b/gi, "")
-      .replace(/\s+/g, " ")
-      .replace(/\s+([,.!?])/g, "$1")
-      .trim()
-
   const processTranscript = useCallback(
     async (blob: Blob | null, fallBackTranscript: string, duration: number, audioUrl?: string) => {
+      if (!blob) {
+        setError("No audio recording found.")
+        setStage("record")
+        return
+      }
+
       setError(null)
       setStage("processing")
       setCurrentStep("uploading")
       setCompletedSteps([])
-      await delay(300)
-      setCompletedSteps(["uploading"])
 
-      setCurrentStep("transcribing")
-      let transcriptText = fallBackTranscript.trim()
-
-      if (blob && settings.voiceProvider.apiKey) {
-        try {
-          const formData = new FormData()
-          formData.append("file", blob)
-          formData.append("provider", settings.voiceProvider.provider)
-          formData.append("model", settings.voiceProvider.model)
-          formData.append("apiKey", settings.voiceProvider.apiKey)
-
-          const sttRes = await fetch("/api/transcribe", { method: "POST", body: formData })
-          if (sttRes.ok) {
-            const sttData = await sttRes.json()
-            if (sttData.text) {
-              transcriptText = sttData.text.trim()
-            }
-          }
-        } catch (err) {
-          console.error("Transcription API failed, using fallback transcript.", err)
-        }
-      }
-
-      const trimmed = transcriptText.trim()
-      if (!trimmed) {
-        setError(
-          supportsSpeechRecognition
-            ? "No speech detected. Try speaking a bit longer or in a quieter environment."
-            : "Speech recognition is not supported in this browser. Try Chrome or Edge."
-        )
-        setCurrentStep(null)
-        setCompletedSteps([])
-        setStage("record")
-        return
-      }
-
-      await delay(400)
-      setCompletedSteps(["uploading", "transcribing"])
-
-      setCurrentStep("cleaning")
-      const cleanedText = cleanTranscript(trimmed)
-      await delay(200)
-      setCompletedSteps(["uploading", "transcribing", "cleaning"])
-
-      setCurrentStep("extracting")
-      let tasks = []
       try {
-        const response = await fetch("/api/extract-tasks", {
+        const formData = new FormData()
+        formData.append("file", blob, "audio.webm")
+
+        const options = {
+          cleaning_engine: "local-ffmpeg",
+          stt_engine: "openai_whisper",
+          text_prompt_id: "cleanup_base",
+          extraction_prompt_id: "task_extraction_notion",
+          export_targets: [],
+          provider_options: {
+            stt: {
+              provider: settings.voiceProvider.provider || "openai",
+              model: settings.voiceProvider.model || "whisper-1",
+              api_key: settings.voiceProvider.apiKey,
+            },
+            llm: {
+              provider: settings.taskComposer.provider || "openai",
+              model: settings.taskComposer.model || "gpt-4o",
+              api_key: settings.taskComposer.apiKey,
+            },
+          },
+        }
+
+        formData.append("options", JSON.stringify(options))
+
+        const res = await apiFetch("/api/jobs", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text: cleanedText,
-            provider: settings.taskComposer.provider,
-            model: settings.taskComposer.model,
-            apiKey: settings.taskComposer.apiKey,
-          }),
+          requireAuth: true,
+          body: formData,
         })
 
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || "Failed to extract tasks")
+        if (!res.ok) {
+          throw new Error(`Failed to submit job to backend (${res.status})`)
         }
 
-        const data = await response.json()
-        tasks = data.tasks
+        const jobData = await res.json()
+        const jobId = jobData.id
+
+        setCompletedSteps(["uploading"])
+        setCurrentStep("transcribing")
+
+        let job = jobData
+        while (job.status === "PENDING" || job.status === "PROCESSING") {
+          await delay(2000)
+          const statusRes = await apiFetch(`/api/jobs/${jobId}`, { requireAuth: true })
+          if (!statusRes.ok) throw new Error("Failed to poll job status")
+          
+          job = await statusRes.json()
+
+          // Automatically update UI steps based on backend events
+          const completedEvents = job.events
+            .filter((e: any) => e.status === "completed")
+            .map((e: any) => e.stage)
+            
+          const currentStageMapping: Record<string, string> = {
+             "voice_cleanup": "cleaning",
+             "stt": "transcribing",
+             "text_cleaning": "cleaning",
+             "task_extraction": "extracting"
+          }
+
+          const currentUIPools: string[] = ["uploading"]
+          for (const ev of completedEvents) {
+             const mapped = currentStageMapping[ev]
+             if (mapped && !currentUIPools.includes(mapped)) currentUIPools.push(mapped)
+          }
+
+          setCompletedSteps(currentUIPools)
+
+          const lastEvent = job.events[job.events.length - 1]
+          if (lastEvent && lastEvent.status === "processing") {
+             const mappedStep = currentStageMapping[lastEvent.stage]
+             if (mappedStep) setCurrentStep(mappedStep)
+          }
+        }
+
+        if (job.status === "FAILED") {
+           throw new Error("Job processing failed on backend server.")
+        }
+
+        if (job.status === "COMPLETED" && job.result) {
+          const { cleaned_transcript, tasks } = job.result
+          
+          const newNote: VoiceNote = {
+            id: jobId,
+            title: `Recording ${new Date().toLocaleTimeString()}`,
+            createdAt: new Date(),
+            duration,
+            audioUrl,
+            rawTranscription: cleaned_transcript || fallBackTranscript,
+            cleanedText: cleaned_transcript,
+            tasks: tasks || [],
+            status: "complete",
+          }
+
+          setResult(newNote)
+          addVoiceNote(newNote)
+          setStage("result")
+          setCurrentStep(null)
+        }
       } catch (err: any) {
-        console.error("AI Extraction failed:", err)
-        setError("AI Extraction failed: " + err.message + ". Please verify your API key in Settings.")
+        console.error("Backend processing failed:", err)
+        setError("Backend failed: " + err.message)
         setCurrentStep(null)
-        setCompletedSteps([])
         setStage("record")
-        return
       }
-      
-      await delay(200)
-      setCompletedSteps(["uploading", "transcribing", "cleaning", "extracting"])
-      setCurrentStep(null)
-
-      const newNote: VoiceNote = {
-        id: Date.now().toString(),
-        title: `Recording ${new Date().toLocaleTimeString()}`,
-        createdAt: new Date(),
-        duration,
-        audioUrl,
-        rawTranscription: trimmed,
-        cleanedText,
-        tasks,
-        status: "complete",
-      }
-
-      setResult(newNote)
-      addVoiceNote(newNote)
-      setStage("result")
     },
-    [addVoiceNote, supportsSpeechRecognition, settings.taskComposer, settings.voiceProvider],
+    [addVoiceNote, settings.taskComposer, settings.voiceProvider],
   )
 
   const handleRecordingComplete = useCallback(

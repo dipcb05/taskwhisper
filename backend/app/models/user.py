@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
-from motor.motor_asyncio import AsyncIOMotorDatabase
+
+from ..core.db import LocalDatabase
 
 
 class User:
@@ -12,7 +13,7 @@ class User:
         self.created_at = datetime.utcnow()
 
     @classmethod
-    async def get_or_create(cls, db: AsyncIOMotorDatabase, payload: dict[str, Any]) -> "User":
+    async def get_or_create(cls, db: LocalDatabase, payload: dict[str, Any]) -> "User":
         uid = payload.get("uid") or payload.get("user_id") or payload.get("sub")
         email = payload.get("email")
         name = payload.get("name") or payload.get("displayName")

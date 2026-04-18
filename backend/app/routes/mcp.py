@@ -59,7 +59,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="list_tasks",
-            description="Retrieve recently created tasks from the database.",
+            description="Retrieve recently created tasks from local storage.",
             inputSchema={
                 "type": "object",
                 "properties": {

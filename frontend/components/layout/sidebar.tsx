@@ -21,20 +21,30 @@ export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const { theme, setTheme } = useStore()
 
   const handleLogout = async () => {
+    if (isSigningOut) return
+    setIsSigningOut(true)
     try {
-      // 1. Clear server-side session
-      await fetch("/api/auth/session", { method: "DELETE" })
-      
-      // 2. Sign out from Firebase client
-      await signOut(auth)
-      
-      // 3. Force full reload to home to clear all state/context
-      window.location.href = "/"
+      localStorage.removeItem("taskwhisper-settings")
+      await Promise.allSettled([
+        fetch("/api/auth/session", {
+          method: "DELETE",
+          cache: "no-store",
+          credentials: "same-origin",
+        }),
+        signOut(auth),
+      ])
+      setIsOpen(false)
+      router.replace("/auth/login")
+      router.refresh()
+      window.location.assign("/auth/login")
     } catch (error) {
       console.error("Error signing out:", error)
+    } finally {
+      setIsSigningOut(false)
     }
   }
 
@@ -127,9 +137,10 @@ export function Sidebar() {
             size="sm"
             className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={handleLogout}
+            disabled={isSigningOut}
           >
             <LogOut className="w-5 h-5" />
-            Sign Out
+            {isSigningOut ? "Signing Out..." : "Sign Out"}
           </Button>
         </div>
       </aside>

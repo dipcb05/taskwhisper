@@ -2,10 +2,6 @@ import asyncio
 import json
 from typing import Any
 
-import redis.asyncio as redis
-
-from .config import get_settings
-
 
 class InMemoryCache:
     def __init__(self) -> None:
@@ -35,18 +31,10 @@ class InMemoryCache:
 
 class Cache:
     def __init__(self) -> None:
-        self.settings = get_settings()
-        self.client: redis.Redis | InMemoryCache | None = None
+        self.client: InMemoryCache | None = None
 
     async def init(self) -> None:
-        if self.settings.redis_url:
-            try:
-                self.client = redis.from_url(self.settings.redis_url, encoding="utf-8", decode_responses=True)
-                await self.client.ping()
-            except Exception:
-                self.client = InMemoryCache()
-        else:
-            self.client = InMemoryCache()
+        self.client = InMemoryCache()
 
     async def set_json(self, key: str, value: Any, ex: int | None = None) -> None:
         assert self.client
