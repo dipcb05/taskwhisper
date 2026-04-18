@@ -6,7 +6,7 @@ TaskWhisper turns spoken notes into cleaned transcripts, extracted tasks, summar
 - `backend/`: FastAPI API, Firebase auth, local JSON storage, in-process cache
 - `frontend/`: Next.js app for recording, reviewing results, and configuring providers
 
-The backend no longer requires MongoDB or Redis. Runtime data is stored locally under `backend/data/`, and uploaded audio is stored under `backend/data/uploads/` by default.
+Runtime data is stored locally under `backend/data/`, and uploaded audio is stored under `backend/data/uploads/` by default.
 
 ## Quickstart
 1. Create a backend virtual environment and install dependencies:
