@@ -40,14 +40,12 @@ export function DashboardMode() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
       <aside
         className={cn(
           "h-screen border-r bg-sidebar flex flex-col transition-all duration-300",
           sidebarOpen ? "w-64" : "w-16",
         )}
       >
-        {/* Logo */}
         <div className="p-4 border-b flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0">
             <Zap className="w-4 h-4 text-primary-foreground" />
@@ -55,7 +53,6 @@ export function DashboardMode() {
           {sidebarOpen && <span className="font-bold text-sidebar-foreground">TaskWhisper</span>}
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1">
           <Button
             variant="default"
@@ -96,7 +93,6 @@ export function DashboardMode() {
           </Button>
         </nav>
 
-        {/* Footer controls */}
         <div className="p-3 border-t space-y-1">
           <Button
             variant="ghost"
@@ -118,9 +114,7 @@ export function DashboardMode() {
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* List view */}
         <div
           className={cn(
             "h-screen overflow-auto border-r transition-all duration-300",
@@ -141,7 +135,6 @@ export function DashboardMode() {
           </div>
         </div>
 
-        {/* Detail view */}
         {selectedTranscription && (
           <div className="flex-1 h-screen overflow-hidden bg-muted/30">
             <DetailView transcription={selectedTranscription} onBack={() => setSelectedTranscription(null)} />
@@ -149,7 +142,6 @@ export function DashboardMode() {
         )}
       </main>
 
-      {/* New transcription dialog */}
       <Dialog open={newTranscriptionOpen} onOpenChange={setNewTranscriptionOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

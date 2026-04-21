@@ -1,4 +1,3 @@
-// Generated TypeScript types for database schema
 
 export interface VoiceNote {
   id: string

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from ..core.db import LocalDatabase
+from ..core.db import Database
 
 
 class User:
@@ -13,7 +13,7 @@ class User:
         self.created_at = datetime.utcnow()
 
     @classmethod
-    async def get_or_create(cls, db: LocalDatabase, payload: dict[str, Any]) -> "User":
+    async def get_or_create(cls, db: Database, payload: dict[str, Any]) -> "User":
         uid = payload.get("uid") or payload.get("user_id") or payload.get("sub")
         email = payload.get("email")
         name = payload.get("name") or payload.get("displayName")

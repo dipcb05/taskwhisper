@@ -55,7 +55,6 @@ export function HistoryTable({
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Search and filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -78,7 +77,6 @@ export function HistoryTable({
         </Select>
       </div>
 
-      {/* Table/List */}
       <div className="space-y-2">
         {filteredTranscriptions.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">

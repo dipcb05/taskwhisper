@@ -9,7 +9,7 @@ class TextCleaningService:
         self.registry = registry
 
     async def clean(self, transcript: str, prompt_id: str, options: dict[str, Any]) -> dict[str, Any]:
-        output = await run_llm_prompt(prompt_id, self.registry, options | {"transcript": transcript})
+        output = await run_llm_prompt(prompt_id, self.registry, options | {"raw_transcript": transcript})
         return {"cleaned_text": output}
 
     async def translate(self, text: str, prompt_id: str, target_language: str | None, options: dict[str, Any]) -> dict[str, Any]:

@@ -8,11 +8,13 @@ import { ResultDisplay } from "@/components/voice/result-display"
 import { useStore, type VoiceNote } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Check, Mic, Sparkles } from "@/lib/icons"
 import { apiFetch } from "@/lib/api"
 import Link from "next/link"
+import { useAuth } from "@/hooks/use-auth"
 
 type Stage = "record" | "processing" | "result"
 
@@ -24,13 +26,84 @@ const speechLanguages = [
   { value: "hi-IN", label: "Hindi (India)" },
 ]
 
+function getSttEngine(provider: string) {
+  switch (provider) {
+    case "google":
+      return "google_speech"
+    case "groq":
+      return "deepgram"
+    case "openai":
+    default:
+      return "openai_whisper"
+  }
+}
+
+function normalizeTasks(tasks: any[] = []) {
+  return tasks.map((task: any, index: number) => ({
+    id: String(task.id ?? `task-${index + 1}`),
+    text: String(task.text ?? task.title ?? task.description ?? "Untitled task"),
+    completed: Boolean(task.completed ?? false),
+    priority:
+      task.priority === "high" || task.priority === "medium" || task.priority === "low"
+        ? task.priority
+        : "medium",
+    dueDate: task.dueDate ?? task.due_date,
+    syncState: "local" as const,
+  }))
+}
+
+function getJobFailureMessage(job: any) {
+  const failedEvent = [...(job?.events ?? [])].reverse().find((event: any) => event?.status === "failed")
+  if (!failedEvent?.error) {
+    return "Job processing failed on backend server."
+  }
+
+  const stage = failedEvent.error.stage || failedEvent.stage || "pipeline"
+  const message = failedEvent.error.message || "Unknown backend error."
+
+  return `${stage}: ${message}`
+}
+
+function mapBackendStageToUiStep(stage: string | null | undefined) {
+  switch (stage) {
+    case "voice_cleanup":
+      return "enhancing"
+    case "text_cleaning":
+      return "cleaning"
+    case "stt":
+      return "transcribing"
+    case "task_extraction":
+      return "extracting"
+    default:
+      return null
+  }
+}
+
+function formatStageLabel(stage: string | null | undefined) {
+  switch (stage) {
+    case "voice_cleanup":
+      return "audio enhancement"
+    case "stt":
+      return "transcription"
+    case "text_cleaning":
+      return "text cleaning"
+    case "task_extraction":
+      return "task extraction"
+    default:
+      return "processing"
+  }
+}
+
 export default function VoicePage() {
   const { addVoiceNote, settings } = useStore()
+  const { user, loading: authLoading } = useAuth()
   const [stage, setStage] = useState<Stage>("record")
   const [currentStep, setCurrentStep] = useState<string | null>(null)
   const [completedSteps, setCompletedSteps] = useState<string[]>([])
+  const [failedStep, setFailedStep] = useState<string | null>(null)
   const [result, setResult] = useState<VoiceNote | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [processingError, setProcessingError] = useState<{ stage: string | null; message: string } | null>(null)
   const [speechLanguage, setSpeechLanguage] = useState(() => {
     if (typeof navigator !== "undefined" && navigator.language) {
       const match = speechLanguages.find((language) => language.value === navigator.language)
@@ -50,6 +123,18 @@ export default function VoicePage() {
 
   const processTranscript = useCallback(
     async (blob: Blob | null, fallBackTranscript: string, duration: number, audioUrl?: string) => {
+      if (authLoading) {
+        setError("Your login session is still loading. Please try again in a moment.")
+        setStage("record")
+        return
+      }
+
+      if (!user) {
+        setError("You must be logged in to process recordings.")
+        setStage("record")
+        return
+      }
+
       if (!blob) {
         setError("No audio recording found.")
         setStage("record")
@@ -57,25 +142,29 @@ export default function VoicePage() {
       }
 
       setError(null)
+      setProcessingError(null)
       setStage("processing")
       setCurrentStep("uploading")
       setCompletedSteps([])
+      setFailedStep(null)
 
       try {
         const formData = new FormData()
         formData.append("file", blob, "audio.webm")
+        const selectedVoiceProvider = settings.voiceProvider.provider || "openai"
 
         const options = {
           cleaning_engine: "local-ffmpeg",
-          stt_engine: "openai_whisper",
+          stt_engine: getSttEngine(selectedVoiceProvider),
           text_prompt_id: "cleanup_base",
           extraction_prompt_id: "task_extraction_notion",
           export_targets: [],
           provider_options: {
             stt: {
-              provider: settings.voiceProvider.provider || "openai",
+              provider: selectedVoiceProvider,
               model: settings.voiceProvider.model || "whisper-1",
               api_key: settings.voiceProvider.apiKey,
+              language: speechLanguage,
             },
             llm: {
               provider: settings.taskComposer.provider || "openai",
@@ -101,7 +190,7 @@ export default function VoicePage() {
         const jobId = jobData.id
 
         setCompletedSteps(["uploading"])
-        setCurrentStep("transcribing")
+        setCurrentStep("enhancing")
 
         let job = jobData
         while (job.status === "PENDING" || job.status === "PROCESSING") {
@@ -111,21 +200,13 @@ export default function VoicePage() {
           
           job = await statusRes.json()
 
-          // Automatically update UI steps based on backend events
           const completedEvents = job.events
             .filter((e: any) => e.status === "completed")
             .map((e: any) => e.stage)
             
-          const currentStageMapping: Record<string, string> = {
-             "voice_cleanup": "cleaning",
-             "stt": "transcribing",
-             "text_cleaning": "cleaning",
-             "task_extraction": "extracting"
-          }
-
           const currentUIPools: string[] = ["uploading"]
           for (const ev of completedEvents) {
-             const mapped = currentStageMapping[ev]
+             const mapped = mapBackendStageToUiStep(ev)
              if (mapped && !currentUIPools.includes(mapped)) currentUIPools.push(mapped)
           }
 
@@ -133,28 +214,38 @@ export default function VoicePage() {
 
           const lastEvent = job.events[job.events.length - 1]
           if (lastEvent && lastEvent.status === "processing") {
-             const mappedStep = currentStageMapping[lastEvent.stage]
+             const mappedStep = mapBackendStageToUiStep(lastEvent.stage)
              if (mappedStep) setCurrentStep(mappedStep)
           }
         }
 
         if (job.status === "FAILED") {
-           throw new Error("Job processing failed on backend server.")
+          const failedEvent = [...(job.events ?? [])].reverse().find((event: any) => event?.status === "failed")
+          const failedStage = failedEvent?.error?.stage || failedEvent?.stage || null
+          const mappedFailedStep = mapBackendStageToUiStep(failedStage)
+          setCurrentStep(null)
+          setFailedStep(mappedFailedStep)
+          setProcessingError({
+            stage: failedStage,
+            message: getJobFailureMessage(job),
+          })
+          return
         }
 
         if (job.status === "COMPLETED" && job.result) {
-          const { cleaned_transcript, tasks } = job.result
+          const { cleaned_transcript, tasks, audio_url } = job.result
           
           const newNote: VoiceNote = {
             id: jobId,
             title: `Recording ${new Date().toLocaleTimeString()}`,
             createdAt: new Date(),
             duration,
-            audioUrl,
+            audioUrl: audioUrl || audio_url,
             rawTranscription: cleaned_transcript || fallBackTranscript,
             cleanedText: cleaned_transcript,
-            tasks: tasks || [],
+            tasks: normalizeTasks(tasks || []),
             status: "complete",
+            syncState: "local",
           }
 
           setResult(newNote)
@@ -164,12 +255,15 @@ export default function VoicePage() {
         }
       } catch (err: any) {
         console.error("Backend processing failed:", err)
-        setError("Backend failed: " + err.message)
         setCurrentStep(null)
-        setStage("record")
+        setFailedStep(null)
+        setProcessingError({
+          stage: null,
+          message: "Backend failed: " + err.message,
+        })
       }
     },
-    [addVoiceNote, settings.taskComposer, settings.voiceProvider],
+    [addVoiceNote, authLoading, settings.taskComposer, settings.voiceProvider, speechLanguage, user],
   )
 
   const handleRecordingComplete = useCallback(
@@ -194,8 +288,10 @@ export default function VoicePage() {
     setStage("record")
     setCurrentStep(null)
     setCompletedSteps([])
+    setFailedStep(null)
     setResult(null)
     setError(null)
+    setProcessingError(null)
   }
 
   return (
@@ -204,7 +300,6 @@ export default function VoicePage() {
 
       <main className="flex-1 lg:ml-0">
         <div className="p-4 lg:p-8 max-w-4xl mx-auto">
-          {/* Header */}
           <div className="flex items-center gap-4 mb-8 pt-12 lg:pt-0">
             <Link href="/dashboard">
               <Button variant="ghost" size="icon">
@@ -231,7 +326,6 @@ export default function VoicePage() {
             </div>
           </div>
 
-          {/* Content */}
           {stage === "record" && (
             <Card>
               <CardContent className="p-8">
@@ -239,6 +333,11 @@ export default function VoicePage() {
                   {!supportsSpeechRecognition && (
                     <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-700 dark:text-yellow-400">
                       Speech recognition is not supported in this browser. Use Chrome or Edge for live transcription.
+                    </div>
+                  )}
+                  {authLoading && (
+                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+                      Restoring your login session...
                     </div>
                   )}
                   {error && (
@@ -268,6 +367,7 @@ export default function VoicePage() {
                     onRecordingComplete={handleRecordingComplete}
                     onFileUpload={handleFileUpload}
                     language={speechLanguage}
+                    disabled={authLoading}
                   />
                 </div>
               </CardContent>
@@ -280,7 +380,7 @@ export default function VoicePage() {
                 <CardTitle>Processing Audio</CardTitle>
               </CardHeader>
               <CardContent>
-                <ProcessingSteps currentStep={currentStep} completedSteps={completedSteps} />
+                <ProcessingSteps currentStep={currentStep} completedSteps={completedSteps} failedStep={failedStep} />
               </CardContent>
             </Card>
           )}
@@ -299,6 +399,30 @@ export default function VoicePage() {
           )}
         </div>
       </main>
+
+      <Dialog
+        open={Boolean(processingError)}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleNewRecording()
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Processing failed</DialogTitle>
+            <DialogDescription>
+              {processingError?.stage ? `The ${formatStageLabel(processingError.stage)} step could not be completed.` : "The recording could not be processed."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+            {processingError?.message}
+          </div>
+          <DialogFooter>
+            <Button onClick={handleNewRecording}>Back to recording</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

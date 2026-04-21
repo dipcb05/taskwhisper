@@ -5,19 +5,15 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
 import type { VoiceNote, Task } from "./db-types"
 
 interface LocalDataStoreType {
-  // User profile
   userProfile: { email?: string; avatarUrl?: string; theme?: "light" | "dark" | "system" } | null
   setUserProfile: (p: any) => void
 
-  // API Keys (localStorage only, never sent to Supabase)
   apiKeys: { openai?: string; anthropic?: string; gemini?: string }
   setApiKeys: (keys: Partial<{ openai?: string; anthropic?: string; gemini?: string }>) => void
 
-  // Model provider settings
   modelSettings: { provider?: string; model?: string }
   setModelSettings: (settings: Partial<{ provider?: string; model?: string }>) => void
 
-  // Local notes and tasks
   localNotes: VoiceNote[]
   addLocalNote: (note: VoiceNote) => void
   updateLocalNote: (id: string, updates: Partial<VoiceNote>) => void
@@ -28,11 +24,9 @@ interface LocalDataStoreType {
   updateLocalTask: (id: string, updates: Partial<Task>) => void
   deleteLocalTask: (id: string) => void
 
-  // Sync state
   autoSync: boolean
   setAutoSync: (v: boolean) => void
 
-  // Clear all local data
   clearAllData: () => void
 }
 
@@ -60,7 +54,6 @@ export function LocalStoreProvider({ children }: { children: React.ReactNode }) 
   const [autoSync, setAutoSyncState] = useState(false)
   const [mounted, setMounted] = useState(false)
 
-  // Load from localStorage on mount
   useEffect(() => {
     const profile = localStorage.getItem(STORAGE_KEYS.userProfile)
     const keys = localStorage.getItem(STORAGE_KEYS.apiKeys)

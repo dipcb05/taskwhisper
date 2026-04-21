@@ -13,6 +13,7 @@ interface RecorderProps {
   onFileUpload: (file: File) => void
   language?: string
   className?: string
+  disabled?: boolean
 }
 
 type SpeechRecognitionEvent = {
@@ -36,7 +37,7 @@ type SpeechRecognitionInstance = {
   stop: () => void
 }
 
-export function Recorder({ onRecordingComplete, onFileUpload, language, className }: RecorderProps) {
+export function Recorder({ onRecordingComplete, onFileUpload, language, className, disabled = false }: RecorderProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -147,7 +148,6 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
         try {
           recognition.start()
         } catch {
-          // Ignore restart errors; some browsers throw if called too quickly.
         }
       }
     }
@@ -167,6 +167,10 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
   }, [finalizeRecording, language])
 
   const startRecording = useCallback(async () => {
+    if (disabled) {
+      return
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
@@ -220,7 +224,7 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
     } catch (err) {
       console.error("Failed to start recording:", err)
     }
-  }, [finalizeRecording, startSpeechRecognition])
+  }, [disabled, finalizeRecording, startSpeechRecognition])
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -259,22 +263,18 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
 
   return (
     <div className={cn("flex flex-col items-center gap-6", className)}>
-      {/* Waveform */}
       <div className="w-full max-w-sm h-20 bg-muted/30 rounded-xl overflow-hidden flex items-center justify-center">
         <WaveformVisualizer isActive={isRecording} />
       </div>
-
-      {/* Timer */}
       <div className="text-3xl font-mono text-foreground tabular-nums">{formatTime(recordingTime)}</div>
 
-      {/* Controls */}
       <div className="flex items-center gap-4">
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="audio/*" className="hidden" />
         <Button
           variant="outline"
           size="lg"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isRecording}
+          disabled={disabled || isRecording}
           className="gap-2"
         >
           <Upload className="w-5 h-5" />
@@ -282,8 +282,9 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
         </Button>
         <button
           onClick={isRecording ? stopRecording : startRecording}
+          disabled={disabled}
           className={cn(
-            "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300",
+            "w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60",
             isRecording
               ? "bg-destructive hover:bg-destructive/90 animate-pulse"
               : "bg-gradient-to-br from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700",
@@ -291,11 +292,15 @@ export function Recorder({ onRecordingComplete, onFileUpload, language, classNam
         >
           {isRecording ? <Square className="w-8 h-8 text-white" /> : <Mic className="w-10 h-10 text-white" />}
         </button>
-        <div className="w-[88px]" /> {/* Spacer for centering */}
+        <div className="w-[88px]" /> 
       </div>
 
       <p className="text-sm text-muted-foreground">
-        {isRecording ? "Recording... Tap to stop" : "Tap to start recording or upload a file"}
+        {disabled
+          ? "Waiting for your login session to finish loading"
+          : isRecording
+            ? "Recording... Tap to stop"
+            : "Tap to start recording or upload a file"}
       </p>
     </div>
   )

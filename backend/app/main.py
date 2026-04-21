@@ -11,7 +11,7 @@ from .core.config import get_settings
 from .core.logging import configure_logging
 from .models.job import JobStatus
 from .prompts.prompt_registry import build_default_registry
-from .routes import health, jobs, integrations, ws, mcp, providers
+from .routes import health, jobs, integrations, ws, providers, cloud
 from .services.pipeline import PipelineService
 from .utils.errors import ServiceError
 from .utils.events import JobEventManager
@@ -32,9 +32,10 @@ app.add_middleware(
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(jobs.router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
 app.include_router(integrations.router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
+app.include_router(integrations.public_router, prefix=settings.api_prefix)
 app.include_router(providers.router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
+app.include_router(cloud.router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
 app.include_router(ws.router)
-app.include_router(mcp.router, prefix=settings.api_prefix, dependencies=[Depends(get_current_user)])
 
 events_manager = JobEventManager()
 prompt_registry = build_default_registry(os.path.join(os.path.dirname(__file__), "prompts"))
@@ -63,3 +64,4 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     await db.close_mongo_connection()
+    await cache.close()

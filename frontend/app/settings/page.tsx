@@ -1,52 +1,387 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
-import { useStore, type ServiceConfig, type MCPServer } from "@/lib/store"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { useStore } from "@/lib/store"
+import { useAuth } from "@/hooks/use-auth"
+import { apiFetch } from "@/lib/api"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  Key, Brain, Eye, EyeOff, Trash2, Check,
-  Mic, Sparkles, Plus, ExternalLink, RefreshCw, X
+  Eye, EyeOff, Check, Mic, Sparkles, Cloud, Loader2, AlertCircle
 } from "@/lib/icons"
-import { cn } from "@/lib/utils"
+
+type IntegrationField = {
+  key: string
+  label: string
+  required: boolean
+  secret: boolean
+  oauth_managed: boolean
+  placeholder?: string | null
+  help_text?: string | null
+}
+
+type IntegrationCatalogItem = {
+  provider: string
+  name: string
+  description: string
+  oauth_supported: boolean
+  oauth_label?: string | null
+  fields: IntegrationField[]
+}
 
 const voiceProviders = [
-  { id: "openai", name: "OpenAI", models: ["whisper-1"] },
-  { id: "groq", name: "Groq", models: ["whisper-large-v3", "distil-whisper-large-v3-en"] },
-  { id: "google", name: "Google", models: ["gemini-1.5-flash"] },
-  { id: "mcp", name: "Custom MCP", models: ["dynamic"] },
+  { id: "openai", name: "OpenAI" },
+  { id: "groq", name: "Groq" },
+  { id: "google", name: "Google" },
 ]
 
 const composerProviders = [
-  { id: "openai", name: "OpenAI", models: ["gpt-4o", "gpt-4o-mini"] },
-  { id: "anthropic", name: "Anthropic", models: ["claude-3-5-sonnet-latest", "claude-3-opus-latest"] },
-  { id: "google", name: "Google", models: ["gemini-1.5-pro", "gemini-1.5-flash"] },
-  { id: "mcp", name: "Custom MCP", models: ["dynamic"] },
+  { id: "openai", name: "OpenAI" },
+  { id: "anthropic", name: "Anthropic" },
+  { id: "google", name: "Google" },
+  { id: "groq", name: "Groq" },
+  { id: "xai", name: "xAI" },
 ]
 
 export default function SettingsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const {
-    theme, setTheme, settings, updateSettings, updateVoiceConfig,
-    updateComposerConfig, addMCPServer, removeMCPServer,
-    connectToMCPServer, disconnectFromMCPServer
+    settings, updateVoiceConfig, updateComposerConfig, voiceNotes, setVoiceNotes
   } = useStore()
+  const { user } = useAuth()
 
-  const [newServer, setNewServer] = useState({ name: "", url: "" })
   const [showVoiceKey, setShowVoiceKey] = useState(false)
   const [showComposerKey, setShowComposerKey] = useState(false)
   const [voiceSaved, setVoiceSaved] = useState(false)
   const [composerSaved, setComposerSaved] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [voiceModels, setVoiceModels] = useState<string[]>([])
+  const [composerModels, setComposerModels] = useState<string[]>([])
+  const [integrationCatalog, setIntegrationCatalog] = useState<IntegrationCatalogItem[]>([])
+  const [integrationConfigs, setIntegrationConfigs] = useState<Record<string, Record<string, string>>>({})
+  const [showIntegrationSecrets, setShowIntegrationSecrets] = useState<Record<string, boolean>>({})
+  const [integrationSaving, setIntegrationSaving] = useState<Record<string, boolean>>({})
+  const [integrationSyncing, setIntegrationSyncing] = useState<Record<string, boolean>>({})
+  const [integrationConnecting, setIntegrationConnecting] = useState<Record<string, boolean>>({})
+  const [integrationMessages, setIntegrationMessages] = useState<Record<string, string>>({})
+  const [integrationErrors, setIntegrationErrors] = useState<Record<string, string>>({})
 
-  const handleAddServer = () => {
-    if (!newServer.name || !newServer.url) return
-    addMCPServer({ id: Date.now().toString(), name: newServer.name, url: newServer.url })
-    setNewServer({ name: "", url: "" })
+  const syncedCount = voiceNotes.filter((note) => note.syncState === "synced").length
+  const localCount = voiceNotes.filter((note) => note.syncState !== "synced").length
+
+  const syncNotesPayload = {
+    notes: voiceNotes.map((note) => ({
+      id: note.id,
+      title: note.title,
+      created_at: note.createdAt.toISOString(),
+      duration_seconds: note.duration,
+      audio_url: note.audioUrl,
+      raw_transcription: note.rawTranscription,
+      cleaned_text: note.cleanedText,
+      status: note.status,
+      sync_state: note.syncState ?? "local",
+      tasks: note.tasks.map((task) => ({
+        id: task.id,
+        text: task.text,
+        completed: task.completed,
+        priority: task.priority,
+        due_date: task.dueDate,
+        sync_state: task.syncState ?? "local",
+      })),
+    })),
+  }
+
+  useEffect(() => {
+    const loadModels = async (provider: string, apiKey: string, kind: "stt" | "llm", setter: (models: string[]) => void) => {
+      try {
+        const response = await apiFetch(`/api/providers/${provider}/models?kind=${kind}`, {
+          requireAuth: true,
+          headers: {
+            "x-api-key": apiKey || "",
+          },
+        })
+        if (!response.ok) {
+          return
+        }
+        const data = await response.json()
+        setter(Array.isArray(data.models) ? data.models : [])
+      } catch (error) {
+        console.error(`Failed to load ${kind} models for ${provider}:`, error)
+      }
+    }
+
+    void loadModels(settings.voiceProvider.provider, settings.voiceProvider.apiKey, "stt", setVoiceModels)
+  }, [settings.voiceProvider.apiKey, settings.voiceProvider.provider])
+
+  useEffect(() => {
+    if (!voiceModels.length) {
+      return
+    }
+    if (!settings.voiceProvider.model || !voiceModels.includes(settings.voiceProvider.model)) {
+      updateVoiceConfig({ model: voiceModels[0] })
+    }
+  }, [settings.voiceProvider.model, updateVoiceConfig, voiceModels])
+
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const response = await apiFetch(`/api/providers/${settings.taskComposer.provider}/models?kind=llm`, {
+          requireAuth: true,
+          headers: {
+            "x-api-key": settings.taskComposer.apiKey || "",
+          },
+        })
+        if (!response.ok) {
+          return
+        }
+        const data = await response.json()
+        setComposerModels(Array.isArray(data.models) ? data.models : [])
+      } catch (error) {
+        console.error(`Failed to load llm models for ${settings.taskComposer.provider}:`, error)
+      }
+    }
+
+    void loadModels()
+  }, [settings.taskComposer.apiKey, settings.taskComposer.provider])
+
+  useEffect(() => {
+    if (!composerModels.length) {
+      return
+    }
+    if (!settings.taskComposer.model || !composerModels.includes(settings.taskComposer.model)) {
+      updateComposerConfig({ model: composerModels[0] })
+    }
+  }, [composerModels, settings.taskComposer.model, updateComposerConfig])
+
+  useEffect(() => {
+    const oauthProvider = searchParams.get("oauth")
+    const oauthStatus = searchParams.get("status")
+    const oauthMessage = searchParams.get("message")
+    if (!oauthProvider || !oauthStatus) {
+      return
+    }
+
+    if (oauthStatus === "success") {
+      setIntegrationMessages((prev) => ({ ...prev, [oauthProvider]: "Connected successfully." }))
+      setIntegrationErrors((prev) => ({ ...prev, [oauthProvider]: "" }))
+    } else {
+      setIntegrationErrors((prev) => ({
+        ...prev,
+        [oauthProvider]: oauthMessage || "OAuth connection failed.",
+      }))
+    }
+
+    router.replace("/settings")
+  }, [router, searchParams])
+
+  useEffect(() => {
+    const loadIntegrations = async () => {
+      try {
+        const [catalogRes, configRes] = await Promise.all([
+          apiFetch("/api/integrations/catalog", { requireAuth: true }),
+          apiFetch("/api/integrations", { requireAuth: true }),
+        ])
+        if (catalogRes.ok) {
+          const catalogData = await catalogRes.json()
+          setIntegrationCatalog(Array.isArray(catalogData) ? catalogData : [])
+        }
+        if (configRes.ok) {
+          const configData = await configRes.json()
+          if (Array.isArray(configData)) {
+            const nextConfigs: Record<string, Record<string, string>> = {}
+            for (const item of configData) {
+              if (item?.provider && item?.config && typeof item.config === "object") {
+                nextConfigs[item.provider] = Object.fromEntries(
+                  Object.entries(item.config).map(([key, value]) => [key, typeof value === "string" ? value : String(value ?? "")]),
+                )
+              }
+            }
+            setIntegrationConfigs(nextConfigs)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load integrations:", error)
+      }
+    }
+
+    void loadIntegrations()
+  }, [])
+
+  const updateIntegrationField = (provider: string, key: string, value: string) => {
+    setIntegrationConfigs((prev) => ({
+      ...prev,
+      [provider]: {
+        ...(prev[provider] ?? {}),
+        [key]: value,
+      },
+    }))
+  }
+
+  const saveIntegration = async (provider: string) => {
+    setIntegrationSaving((prev) => ({ ...prev, [provider]: true }))
+    setIntegrationErrors((prev) => ({ ...prev, [provider]: "" }))
+    setIntegrationMessages((prev) => ({ ...prev, [provider]: "" }))
+
+    try {
+      const response = await apiFetch("/api/integrations", {
+        method: "POST",
+        requireAuth: true,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          provider,
+          config: integrationConfigs[provider] ?? {},
+        }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null)
+        throw new Error(errorBody?.detail || `Failed to save integration (${response.status})`)
+      }
+      setIntegrationMessages((prev) => ({ ...prev, [provider]: "Saved." }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save integration"
+      setIntegrationErrors((prev) => ({ ...prev, [provider]: message }))
+    } finally {
+      setIntegrationSaving((prev) => ({ ...prev, [provider]: false }))
+    }
+  }
+
+  const connectIntegration = async (provider: string) => {
+    setIntegrationConnecting((prev) => ({ ...prev, [provider]: true }))
+    setIntegrationErrors((prev) => ({ ...prev, [provider]: "" }))
+    setIntegrationMessages((prev) => ({ ...prev, [provider]: "" }))
+    try {
+      const response = await apiFetch(`/api/integrations/oauth/start/${provider}`, {
+        method: "POST",
+        requireAuth: true,
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null)
+        throw new Error(errorBody?.detail || `Failed to start OAuth flow (${response.status})`)
+      }
+      const data = await response.json()
+      if (!data.authorize_url) {
+        throw new Error("Missing authorization URL.")
+      }
+      window.location.href = data.authorize_url
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start OAuth flow"
+      setIntegrationErrors((prev) => ({ ...prev, [provider]: message }))
+      setIntegrationConnecting((prev) => ({ ...prev, [provider]: false }))
+    }
+  }
+
+  const syncIntegration = async (provider: string) => {
+    if (voiceNotes.length === 0) {
+      setIntegrationErrors((prev) => ({ ...prev, [provider]: "No notes available to sync yet." }))
+      setIntegrationMessages((prev) => ({ ...prev, [provider]: "" }))
+      return
+    }
+
+    setIntegrationSyncing((prev) => ({ ...prev, [provider]: true }))
+    setIntegrationErrors((prev) => ({ ...prev, [provider]: "" }))
+    setIntegrationMessages((prev) => ({ ...prev, [provider]: "" }))
+    try {
+      const response = await apiFetch("/api/integrations/sync", {
+        method: "POST",
+        requireAuth: true,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          provider,
+          notes: syncNotesPayload.notes,
+        }),
+      })
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null)
+        throw new Error(errorBody?.detail || `Failed to sync integration (${response.status})`)
+      }
+      const data = await response.json()
+      const successCount = Array.isArray(data.results) ? data.results.filter((item: any) => item.success).length : 0
+      const totalCount = Array.isArray(data.results) ? data.results.length : 0
+      setIntegrationMessages((prev) => ({
+        ...prev,
+        [provider]: `Synced ${successCount}/${totalCount} items.`,
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to sync integration"
+      setIntegrationErrors((prev) => ({ ...prev, [provider]: message }))
+    } finally {
+      setIntegrationSyncing((prev) => ({ ...prev, [provider]: false }))
+    }
+  }
+
+  const handleCloudSync = async () => {
+    if (!user) {
+      setSyncError("Sign in first to sync your notes to TaskWhisper Cloud.")
+      setSyncMessage(null)
+      return
+    }
+
+    if (voiceNotes.length === 0) {
+      setSyncError(null)
+      setSyncMessage("No notes available to sync yet.")
+      return
+    }
+
+    setIsSyncing(true)
+    setSyncError(null)
+    setSyncMessage(null)
+    setVoiceNotes(
+      voiceNotes.map((note) => ({
+        ...note,
+        syncState: "syncing",
+        tasks: note.tasks.map((task) => ({ ...task, syncState: "syncing" })),
+      })),
+    )
+
+    try {
+      const response = await apiFetch("/api/cloud/sync", {
+        method: "POST",
+        requireAuth: true,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(syncNotesPayload),
+      })
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null)
+        throw new Error(errorBody?.detail || `Sync failed with status ${response.status}`)
+      }
+
+      const result = await response.json()
+      setVoiceNotes(
+        voiceNotes.map((note) => ({
+          ...note,
+          syncState: "synced",
+          tasks: note.tasks.map((task) => ({ ...task, syncState: "synced" })),
+        })),
+      )
+      setSyncMessage(`Synced ${result.synced_notes} notes and ${result.synced_tasks} tasks to TaskWhisper Cloud.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown sync error"
+      setVoiceNotes(
+        voiceNotes.map((note) => ({
+          ...note,
+          syncState: "error",
+          tasks: note.tasks.map((task) => ({ ...task, syncState: "error" })),
+        })),
+      )
+      setSyncError(message)
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   return (
@@ -55,31 +390,11 @@ export default function SettingsPage() {
 
       <main className="flex-1 lg:ml-0 overflow-y-auto">
         <div className="p-4 lg:p-8 max-w-4xl mx-auto space-y-8">
-          {/* Header */}
           <div className="mb-8 pt-12 lg:pt-0">
             <h1 className="text-3xl font-bold tracking-tight">System Configuration</h1>
           </div>
 
-          <Tabs defaultValue="api-provider" className="space-y-8">
-            <TabsList className="inline-flex h-11 items-center justify-center rounded-xl bg-muted p-1 text-muted-foreground w-full max-w-lg">
-              <TabsTrigger value="api-provider" className="rounded-lg flex-1 py-2">Providers</TabsTrigger>
-              <TabsTrigger value="mcp" className="rounded-lg flex-1 py-2">
-                <span className="flex items-center gap-2">
-                  MCP Hub
-                  {settings.mcpServers.length > 0 && (
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-                      {settings.mcpServers.length}
-                    </span>
-                  )}
-                </span>
-              </TabsTrigger>
-            </TabsList>
-
-
-            {/* Providers Tab */}
-            <TabsContent value="api-provider" className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-
-              {/* Voice Processing */}
+          <div className="space-y-8">
               <Card className="border-border/50 bg-card/50 backdrop-blur-sm relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-cyan-500" />
                 <CardHeader>
@@ -95,8 +410,7 @@ export default function SettingsPage() {
                       <Select
                         value={settings.voiceProvider.provider}
                         onValueChange={(value) => {
-                          const p = voiceProviders.find(v => v.id === value)
-                          updateVoiceConfig({ provider: value, model: p?.models[0] || "" })
+                          updateVoiceConfig({ provider: value, model: "" })
                         }}
                       >
                         <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
@@ -110,72 +424,47 @@ export default function SettingsPage() {
                       </Select>
                     </div>
 
-                    {settings.voiceProvider.provider === "mcp" ? (
-                      <div className="space-y-2 text-foreground">
-                        <Label className="text-xs font-bold uppercase text-muted-foreground">Select MCP Server</Label>
-                        <Select
-                          value={settings.voiceProvider.mcpUrl}
-                          onValueChange={(value) => updateVoiceConfig({ mcpUrl: value })}
-                        >
-                          <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
-                            <SelectValue placeholder="Choose a server..." />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl">
-                            {settings.mcpServers.map((s) => (
-                              <SelectItem key={s.id} value={s.url}>{s.name}</SelectItem>
-                            ))}
-                            {settings.mcpServers.length === 0 && (
-                              <SelectItem value="none" disabled>No MCP servers found</SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase text-muted-foreground">Model</Label>
-                        <Select
-                          value={settings.voiceProvider.model}
-                          onValueChange={(value) => updateVoiceConfig({ model: value })}
-                        >
-                          <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl">
-                            {voiceProviders.find(v => v.id === settings.voiceProvider.provider)?.models.map((m) => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase text-muted-foreground">Model</Label>
+                      <Select
+                        value={settings.voiceProvider.model}
+                        onValueChange={(value) => updateVoiceConfig({ model: value })}
+                      >
+                        <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          {voiceModels.map((m) => (
+                            <SelectItem key={m} value={m}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
-                  {settings.voiceProvider.provider !== "mcp" && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase text-muted-foreground">Secure Credentials</Label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            type={showVoiceKey ? "text" : "password"}
-                            placeholder="sk-..."
-                            value={settings.voiceProvider.apiKey}
-                            onChange={(e) => updateVoiceConfig({ apiKey: e.target.value })}
-                            className="h-12 rounded-xl bg-muted/50 border-none pr-12"
-                          />
-                          <button onClick={() => setShowVoiceKey(!showVoiceKey)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            {showVoiceKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <Button onClick={() => setVoiceSaved(true)} className="h-12 rounded-xl px-6">
-                          {voiceSaved ? <Check className="w-4 h-4" /> : "Save"}
-                        </Button>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase text-muted-foreground">Secure Credentials</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type={showVoiceKey ? "text" : "password"}
+                          placeholder="sk-..."
+                          value={settings.voiceProvider.apiKey}
+                          onChange={(e) => updateVoiceConfig({ apiKey: e.target.value })}
+                          className="h-12 rounded-xl bg-muted/50 border-none pr-12"
+                        />
+                        <button onClick={() => setShowVoiceKey(!showVoiceKey)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+                          {showVoiceKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
+                      <Button onClick={() => setVoiceSaved(true)} className="h-12 rounded-xl px-6">
+                        {voiceSaved ? <Check className="w-4 h-4" /> : "Save"}
+                      </Button>
                     </div>
-                  )}
+                  </div>
                 </CardContent>
               </Card>
 
-              {/* Task Composer */}
               <Card className="border-border/50 bg-card/50 backdrop-blur-sm relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1.5 h-full bg-purple-500" />
                 <CardHeader>
@@ -191,8 +480,7 @@ export default function SettingsPage() {
                       <Select
                         value={settings.taskComposer.provider}
                         onValueChange={(value) => {
-                          const p = composerProviders.find(v => v.id === value)
-                          updateComposerConfig({ provider: value, model: p?.models[0] || "" })
+                          updateComposerConfig({ provider: value, model: "" })
                         }}
                       >
                         <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
@@ -206,162 +494,206 @@ export default function SettingsPage() {
                       </Select>
                     </div>
 
-                    {settings.taskComposer.provider === "mcp" ? (
-                      <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase text-muted-foreground">Select MCP Server</Label>
-                        <Select
-                          value={settings.taskComposer.mcpUrl}
-                          onValueChange={(value) => updateComposerConfig({ mcpUrl: value })}
-                        >
-                          <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
-                            <SelectValue placeholder="Choose a server..." />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl">
-                            {settings.mcpServers.map((s) => (
-                              <SelectItem key={s.id} value={s.url}>{s.name}</SelectItem>
-                            ))}
-                            {settings.mcpServers.length === 0 && (
-                              <SelectItem value="none" disabled>No MCP servers found</SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Label className="text-xs font-bold uppercase text-muted-foreground">Model</Label>
-                        <Select
-                          value={settings.taskComposer.model}
-                          onValueChange={(value) => updateComposerConfig({ model: value })}
-                        >
-                          <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-xl">
-                            {composerProviders.find(v => v.id === settings.taskComposer.provider)?.models.map((m) => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase text-muted-foreground">Model</Label>
+                      <Select
+                        value={settings.taskComposer.model}
+                        onValueChange={(value) => updateComposerConfig({ model: value })}
+                      >
+                        <SelectTrigger className="h-12 rounded-xl bg-muted/50 border-none">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl">
+                          {composerModels.map((m) => (
+                            <SelectItem key={m} value={m}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
-                  {settings.taskComposer.provider !== "mcp" && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase text-muted-foreground">Secure Credentials</Label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            type={showComposerKey ? "text" : "password"}
-                            placeholder="Key..."
-                            value={settings.taskComposer.apiKey}
-                            onChange={(e) => updateComposerConfig({ apiKey: e.target.value })}
-                            className="h-12 rounded-xl bg-muted/50 border-none pr-12"
-                          />
-                          <button onClick={() => setShowComposerKey(!showComposerKey)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            {showComposerKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <Button onClick={() => setComposerSaved(true)} className="h-12 rounded-xl px-6">
-                          {composerSaved ? <Check className="w-4 h-4" /> : "Save"}
-                        </Button>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase text-muted-foreground">Secure Credentials</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type={showComposerKey ? "text" : "password"}
+                          placeholder="Key..."
+                          value={settings.taskComposer.apiKey}
+                          onChange={(e) => updateComposerConfig({ apiKey: e.target.value })}
+                          className="h-12 rounded-xl bg-muted/50 border-none pr-12"
+                        />
+                        <button onClick={() => setShowComposerKey(!showComposerKey)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+                          {showComposerKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
                       </div>
+                      <Button onClick={() => setComposerSaved(true)} className="h-12 rounded-xl px-6">
+                        {composerSaved ? <Check className="w-4 h-4" /> : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/50 bg-card/50 backdrop-blur-sm relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-foreground">
+                    <Cloud className="w-5 h-5 text-blue-500" />
+                    TaskWhisper Cloud Sync
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="rounded-xl bg-muted/40 p-4">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Signed In</p>
+                      <p className="mt-2 text-sm">{user?.email || "No active session"}</p>
+                    </div>
+                    <div className="rounded-xl bg-muted/40 p-4">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Local Notes</p>
+                      <p className="mt-2 text-2xl font-semibold">{localCount}</p>
+                    </div>
+                    <div className="rounded-xl bg-muted/40 p-4">
+                      <p className="text-xs font-bold uppercase text-muted-foreground">Cloud Synced</p>
+                      <p className="mt-2 text-2xl font-semibold">{syncedCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl bg-muted/40 p-4">
+                    <div>
+                      <p className="font-medium">Manual Sync</p>
+                      <p className="text-sm text-muted-foreground">
+                        Push your current recordings and extracted tasks to TaskWhisper Cloud.
+                      </p>
+                    </div>
+                    <Button onClick={handleCloudSync} disabled={isSyncing || voiceNotes.length === 0}>
+                      {isSyncing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Cloud className="w-4 h-4 mr-2" />}
+                      {isSyncing ? "Syncing..." : "Sync to Cloud"}
+                    </Button>
+                  </div>
+
+                  {syncMessage && (
+                    <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-400">
+                      {syncMessage}
+                    </div>
+                  )}
+
+                  {syncError && (
+                    <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                      <span className="inline-flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        {syncError}
+                      </span>
                     </div>
                   )}
                 </CardContent>
               </Card>
-            </TabsContent>
 
-            {/* MCP Hub Tab */}
-            <TabsContent value="mcp" className="space-y-6 animate-in zoom-in-95 duration-500">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="border-primary/20 bg-primary/5">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Add MCP Remote Server</CardTitle>
-                    <CardDescription>Connect to an external Model Context Protocol server via SSE or WebSocket.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Server Name</Label>
-                      <Input
-                        placeholder="e.g. Local Llama Bridge"
-                        value={newServer.name}
-                        onChange={(e) => setNewServer(prev => ({ ...prev, name: e.target.value }))}
-                        className="rounded-xl border-primary/20"
-                      />
+              <Card className="border-border/50 bg-card/50 backdrop-blur-sm relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-foreground">
+                    <Cloud className="w-5 h-5 text-emerald-500" />
+                    Workspace Syncs
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {integrationCatalog.length === 0 ? (
+                    <div className="rounded-xl bg-muted/40 p-4 text-sm text-muted-foreground">
+                      No workspace integrations available.
                     </div>
-                    <div className="space-y-2">
-                      <Label>Endpoint URL (SSE)</Label>
-                      <Input
-                        placeholder="https://... or http://localhost:..."
-                        value={newServer.url}
-                        onChange={(e) => setNewServer(prev => ({ ...prev, url: e.target.value }))}
-                        className="rounded-xl border-primary/20"
-                      />
-                    </div>
-                  </CardContent>
-                  <CardFooter>
-                    <Button onClick={handleAddServer} className="w-full rounded-xl gap-2 font-semibold">
-                      <Plus className="w-4 h-4" /> Register Server
-                    </Button>
-                  </CardFooter>
-                </Card>
-
-                <div className="space-y-6 overflow-y-visible">
-                  <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground px-2">Active Connections</h3>
-                  <div className="space-y-3">
-                    {settings.mcpServers.map((server) => (
-                      <Card key={server.id} className="border-border/50 bg-card/30 backdrop-blur-sm group">
-                        <CardContent className="p-4 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={cn(
-                              "w-2 h-2 rounded-full transition-all duration-300",
-                              server.status === "connected" ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" :
-                                server.status === "connecting" ? "bg-yellow-500 animate-pulse" :
-                                  "bg-muted-foreground/30"
-                            )} />
-                            <div>
-                              <p className="font-semibold text-sm">{server.name}</p>
-                              <p className="text-[10px] text-muted-foreground font-mono">{server.url}</p>
-                            </div>
+                  ) : (
+                    integrationCatalog.map((integration) => (
+                      <div key={integration.provider} className="rounded-2xl border border-border/60 bg-muted/20 p-4 space-y-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-medium">{integration.name}</p>
+                            <p className="text-sm text-muted-foreground">{integration.description}</p>
                           </div>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex gap-2">
+                            {integration.oauth_supported && (
+                              <Button
+                                variant="outline"
+                                onClick={() => connectIntegration(integration.provider)}
+                                disabled={integrationConnecting[integration.provider]}
+                              >
+                                {integrationConnecting[integration.provider] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                                {integration.oauth_label ?? "Connect"}
+                              </Button>
+                            )}
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                if (server.status === "connected") {
-                                  disconnectFromMCPServer(server.id)
-                                } else {
-                                  connectToMCPServer(server.id, server.url)
-                                }
-                              }}
+                              variant="outline"
+                              onClick={() => saveIntegration(integration.provider)}
+                              disabled={integrationSaving[integration.provider]}
                             >
-                              <RefreshCw className={cn("w-3.5 h-3.5", server.status === "connecting" && "animate-spin")} />
+                              {integrationSaving[integration.provider] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                              Save
                             </Button>
                             <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeMCPServer(server.id)}
-                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => syncIntegration(integration.provider)}
+                              disabled={integrationSyncing[integration.provider] || voiceNotes.length === 0}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {integrationSyncing[integration.provider] ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                              Sync
                             </Button>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                    {settings.mcpServers.length === 0 && (
-                      <div className="text-center py-12 border-2 border-dashed border-border rounded-2xl">
-                        <p className="text-sm text-muted-foreground">No MCP servers registered yet.</p>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                          {integration.fields.filter((field) => !field.oauth_managed).map((field) => {
+                            const isSecretVisible = Boolean(showIntegrationSecrets[`${integration.provider}:${field.key}`])
+                            return (
+                              <div key={field.key} className="space-y-2">
+                                <Label className="text-xs font-bold uppercase text-muted-foreground">{field.label}</Label>
+                                <div className="relative">
+                                  <Input
+                                    type={field.secret && !isSecretVisible ? "password" : "text"}
+                                    placeholder={field.placeholder ?? ""}
+                                    value={integrationConfigs[integration.provider]?.[field.key] ?? ""}
+                                    onChange={(e) => updateIntegrationField(integration.provider, field.key, e.target.value)}
+                                    className={field.secret ? "pr-12" : ""}
+                                  />
+                                  {field.secret && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setShowIntegrationSecrets((prev) => ({
+                                          ...prev,
+                                          [`${integration.provider}:${field.key}`]: !prev[`${integration.provider}:${field.key}`],
+                                        }))
+                                      }
+                                      className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                                    >
+                                      {isSecretVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                  )}
+                                </div>
+                                {field.help_text && <p className="text-xs text-muted-foreground">{field.help_text}</p>}
+                              </div>
+                            )
+                          })}
+                        </div>
+
+                        {integrationMessages[integration.provider] && (
+                          <div className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-400">
+                            {integrationMessages[integration.provider]}
+                          </div>
+                        )}
+
+                        {integrationErrors[integration.provider] && (
+                          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-400">
+                            <span className="inline-flex items-center gap-2">
+                              <AlertCircle className="w-4 h-4" />
+                              {integrationErrors[integration.provider]}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+          </div>
         </div>
       </main>
     </div>

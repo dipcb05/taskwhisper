@@ -36,17 +36,14 @@ export function WaveformVisualizer({ isActive, className }: WaveformVisualizerPr
 
       barsRef.current.forEach((value, i) => {
         if (isActive) {
-          // Animate bars when active
           barsRef.current[i] = Math.max(0.1, Math.min(1, value + (Math.random() - 0.5) * 0.15))
         } else {
-          // Decay when not active
           barsRef.current[i] = Math.max(0.1, value * 0.95)
         }
 
         const barHeight = barsRef.current[i] * height * 0.8
         const x = i * (barWidth + 2)
 
-        // Create gradient
         const gradient = ctx.createLinearGradient(0, centerY - barHeight / 2, 0, centerY + barHeight / 2)
         gradient.addColorStop(0, isActive ? "rgb(6, 182, 212)" : "rgb(100, 116, 139)")
         gradient.addColorStop(0.5, isActive ? "rgb(59, 130, 246)" : "rgb(71, 85, 105)")

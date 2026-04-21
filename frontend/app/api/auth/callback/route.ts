@@ -10,7 +10,6 @@ export async function GET(request: NextRequest) {
 
     console.log("[v0] Auth callback with code:", code.substring(0, 10))
 
-    // Redirect to dashboard on successful auth
     return NextResponse.redirect(new URL("/dashboard", request.url))
   } catch (error) {
     console.error("[v0] Auth error:", error)

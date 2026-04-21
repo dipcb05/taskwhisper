@@ -92,7 +92,6 @@ export function RecorderButton({
           />
         )}
 
-        {/* Pulse ring animation when recording */}
         {isRecording && (
           <>
             <span

@@ -21,7 +21,6 @@ export function ModelSelector() {
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
-  // Fetch models when provider changes
   useEffect(() => {
     if (!modelSettings.provider) return
 

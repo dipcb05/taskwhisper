@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any, AsyncIterator
 
+import asyncpg
+
 from .config import get_settings
 
 
@@ -21,6 +23,14 @@ def _serialize(value: Any) -> Any:
 
 def _deep_copy(value: Any) -> Any:
     return copy.deepcopy(value)
+
+
+def _normalize_document(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        return json.loads(value)
+    if isinstance(value, dict):
+        return value
+    return dict(value)
 
 
 def _get_path(document: dict[str, Any], path: str) -> Any:
@@ -86,17 +96,17 @@ class InsertOneResult:
         self.inserted_id = inserted_id
 
 
-class LocalCursor:
+class BaseCursor:
     def __init__(self, documents: list[dict[str, Any]]) -> None:
         self._documents = [_deep_copy(doc) for doc in documents]
         self._limit: int | None = None
 
-    def sort(self, key: str, direction: int) -> "LocalCursor":
+    def sort(self, key: str, direction: int) -> "BaseCursor":
         reverse = direction < 0
         self._documents.sort(key=lambda item: _get_path(item, key) or "", reverse=reverse)
         return self
 
-    def limit(self, value: int) -> "LocalCursor":
+    def limit(self, value: int) -> "BaseCursor":
         self._limit = value
         return self
 
@@ -118,6 +128,14 @@ class LocalCursor:
                 yield _deep_copy(document)
 
         return generator()
+
+
+class LocalCursor(BaseCursor):
+    pass
+
+
+class PostgresCursor(BaseCursor):
+    pass
 
 
 class LocalCollection:
@@ -172,6 +190,132 @@ class LocalCollection:
         return None
 
 
+class PostgresCollection:
+    def __init__(self, database: "PostgresDatabase", name: str) -> None:
+        self._database = database
+        self._name = name
+
+    async def insert_one(self, document: dict[str, Any]) -> InsertOneResult:
+        payload = _serialize(_deep_copy(document))
+        payload["_id"] = payload.get("_id") or uuid.uuid4().hex
+        await self._database.pool.execute(
+            """
+            INSERT INTO app_documents (collection, doc_id, document)
+            VALUES ($1, $2, $3::jsonb)
+            ON CONFLICT (collection, doc_id)
+            DO UPDATE SET document = EXCLUDED.document, updated_at = NOW()
+            """,
+            self._name,
+            payload["_id"],
+            json.dumps(payload),
+        )
+        return InsertOneResult(payload["_id"])
+
+    async def find_one(self, query: dict[str, Any]) -> dict[str, Any] | None:
+        rows = await self._database.pool.fetch(
+            "SELECT document FROM app_documents WHERE collection = $1",
+            self._name,
+        )
+        for row in rows:
+            document = _normalize_document(row["document"])
+            if _matches(document, query):
+                return _deep_copy(document)
+        return None
+
+    def find(self, query: dict[str, Any]) -> PostgresCursor:
+        async def load_documents() -> list[dict[str, Any]]:
+            rows = await self._database.pool.fetch(
+                "SELECT document FROM app_documents WHERE collection = $1",
+                self._name,
+            )
+            documents = []
+            for row in rows:
+                document = _normalize_document(row["document"])
+                if _matches(document, query):
+                    documents.append(document)
+            return documents
+
+        class LazyPostgresCursor(PostgresCursor):
+            def __init__(self, loader) -> None:
+                super().__init__([])
+                self._loader = loader
+                self._loaded = False
+
+            async def _ensure_loaded(self) -> None:
+                if not self._loaded:
+                    self._documents = await self._loader()
+                    self._loaded = True
+
+            def sort(self, key: str, direction: int) -> "LazyPostgresCursor":
+                self._sort_key = key
+                self._sort_direction = direction
+                return self
+
+            def limit(self, value: int) -> "LazyPostgresCursor":
+                self._limit = value
+                return self
+
+            async def to_list(self, length: int | None = None) -> list[dict[str, Any]]:
+                await self._ensure_loaded()
+                if hasattr(self, "_sort_key"):
+                    super().sort(self._sort_key, self._sort_direction)
+                return await super().to_list(length)
+
+            def __aiter__(self) -> AsyncIterator[dict[str, Any]]:
+                async def generator() -> AsyncIterator[dict[str, Any]]:
+                    await self._ensure_loaded()
+                    if hasattr(self, "_sort_key"):
+                        super(LazyPostgresCursor, self).sort(self._sort_key, self._sort_direction)
+                    docs = await super(LazyPostgresCursor, self).to_list()
+                    for document in docs:
+                        yield document
+
+                return generator()
+
+        return LazyPostgresCursor(load_documents)
+
+    async def update_one(self, query: dict[str, Any], update: dict[str, Any], upsert: bool = False) -> None:
+        async with self._database.lock:
+            rows = await self._database.pool.fetch(
+                "SELECT doc_id, document FROM app_documents WHERE collection = $1",
+                self._name,
+            )
+            target_row = next((row for row in rows if _matches(_normalize_document(row["document"]), query)), None)
+            created = False
+            if target_row is None and upsert:
+                payload = _serialize(_deep_copy(query))
+                payload["_id"] = payload.get("_id") or uuid.uuid4().hex
+                target = payload
+                created = True
+            elif target_row is None:
+                return
+            else:
+                target = _normalize_document(target_row["document"])
+
+            for key, value in update.get("$set", {}).items():
+                _set_path(target, key, value)
+            for key, value in update.get("$push", {}).items():
+                _push_path(target, key, value)
+            if created:
+                for key, value in update.get("$setOnInsert", {}).items():
+                    _set_path(target, key, value)
+
+            await self._database.pool.execute(
+                """
+                INSERT INTO app_documents (collection, doc_id, document)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (collection, doc_id)
+                DO UPDATE SET document = EXCLUDED.document, updated_at = NOW()
+                """,
+                self._name,
+                target["_id"],
+                json.dumps(_serialize(target)),
+            )
+
+    async def create_index(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 class LocalDatabase:
     def __init__(self, path: str) -> None:
         self.path = path
@@ -201,21 +345,57 @@ class LocalDatabase:
         return LocalCollection(self, name)
 
 
-database: LocalDatabase | None = None
+class PostgresDatabase:
+    def __init__(self, dsn: str) -> None:
+        self.dsn = dsn
+        self.lock = asyncio.Lock()
+        self.pool: asyncpg.Pool
+
+    async def load(self) -> None:
+        self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=5)
+        await self.pool.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_documents (
+              collection TEXT NOT NULL,
+              doc_id TEXT NOT NULL,
+              document JSONB NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              PRIMARY KEY (collection, doc_id)
+            )
+            """
+        )
+        await self.pool.execute(
+            "CREATE INDEX IF NOT EXISTS idx_app_documents_collection ON app_documents (collection)"
+        )
+
+    async def close(self) -> None:
+        await self.pool.close()
+
+    def __getitem__(self, name: str) -> PostgresCollection:
+        return PostgresCollection(self, name)
+
+
+Database = LocalDatabase | PostgresDatabase
+database: Database | None = None
 
 
 async def connect() -> None:
     global database
     settings = get_settings()
-    database = LocalDatabase(settings.local_db_path)
+    if settings.database_url:
+        database = PostgresDatabase(settings.database_url)
+    else:
+        database = LocalDatabase(settings.local_db_path)
     await database.load()
 
 
 async def close() -> None:
-    return None
+    if isinstance(database, PostgresDatabase):
+        await database.close()
 
 
-def get_db() -> LocalDatabase:
+def get_db() -> Database:
     if database is None:
         raise RuntimeError("Database not initialized")
     return database

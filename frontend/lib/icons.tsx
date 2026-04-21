@@ -1,5 +1,3 @@
-// Inline SVG icon components to replace lucide-react
-// All icons are 24px by default and accept className prop
 
 export function Upload({ className = "w-6 h-6" }: { className?: string }) {
   return (

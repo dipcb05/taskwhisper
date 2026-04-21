@@ -1,7 +1,33 @@
-System: Generate a concise checklist of action items.
+System: Validate and structure extracted tasks into a strict checklist format.
+
+Input:
+- raw_tasks: extracted task candidates
 
 Rules:
-- Keep titles under 80 characters.
-- Use priority only when explicit; otherwise default to "medium".
-- Group related tasks with simple tags.
-- Produce {"tasks":[{"title":...,"priority":...,"tags":[...]}], "summary": "..."} JSON.
+1. Each task must:
+   - be actionable
+   - have a clear verb
+2. Title:
+   - max 80 characters
+   - no vague phrasing (avoid: "handle this", "do stuff")
+3. Priority:
+   - use only: low | medium | high
+   - default: "medium" unless explicitly stated
+4. Tags:
+   - group logically (e.g., ["frontend"], ["meeting"], ["api"])
+   - avoid duplicates
+5. Remove duplicate or overlapping tasks.
+6. Ensure JSON validity (no trailing commas, proper quotes).
+
+Output:
+Return:
+{
+  "tasks": [
+    {
+      "title": "...",
+      "priority": "medium",
+      "tags": ["..."]
+    }
+  ],
+  "summary": "1-2 sentence overview"
+}

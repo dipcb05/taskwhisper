@@ -9,15 +9,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
-import { useState } from "react"
-import { ArrowLeft } from "lucide-react"
+import { useRef, useState } from "react"
+import { ArrowLeft } from "@/lib/icons"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/auth/turnstile-widget"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const widgetRef = useRef<TurnstileWidgetHandle | null>(null)
+
+  const verifyTurnstile = async () => {
+    if (!turnstileToken) {
+      throw new Error("Please complete the security check.")
+    }
+
+    const response = await fetch("/api/turnstile/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ token: turnstileToken }),
+    })
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw new Error(payload?.error || "Turnstile verification failed.")
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,11 +48,13 @@ export default function ForgotPasswordPage() {
     setSuccess(false)
 
     try {
+      await verifyTurnstile()
       await sendPasswordResetEmail(auth, email)
       setSuccess(true)
     } catch (error: any) {
       setError(error?.message || "An error occurred. Please check your email and try again.")
     } finally {
+      widgetRef.current?.reset()
       setIsLoading(false)
     }
   }
@@ -88,8 +112,9 @@ export default function ForgotPasswordPage() {
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
+                  <TurnstileWidget ref={widgetRef} onTokenChange={setTurnstileToken} />
                   {error && <p className="text-sm text-destructive">{error}</p>}
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button type="submit" className="w-full" disabled={isLoading || !turnstileToken}>
                     {isLoading ? "Sending link..." : "Send reset link"}
                   </Button>
                 </div>

@@ -31,17 +31,13 @@ export function AILabMode() {
   const isProcessing = processingState.currentStep !== null && processingState.currentStep !== "complete"
   const isComplete = processingState.currentStep === "complete"
 
-  // Show results after processing completes
   if (isComplete && !showResults) {
     setTimeout(() => setShowResults(true), 500)
   }
 
   return (
     <div className="min-h-screen bg-background grid-background relative overflow-hidden">
-      {/* Scanline overlay */}
       <div className="absolute inset-0 scanlines pointer-events-none" />
-
-      {/* Header */}
       <header className="relative z-10 border-b border-border/30 bg-background/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -63,13 +59,9 @@ export function AILabMode() {
           </div>
         </div>
       </header>
-
-      {/* Main content */}
       <main className="relative z-10 container mx-auto px-4 py-8">
         <div className="grid lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
-          {/* Left: Console */}
           <div className="space-y-6">
-            {/* Console panel */}
             <div className="rounded-xl border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
                 <Radio className="w-4 h-4 text-neon-cyan" />
@@ -77,17 +69,17 @@ export function AILabMode() {
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Waveform display */}
+         
                 <div className="h-24 rounded-lg bg-background/50 border border-border/30 overflow-hidden flex items-center justify-center">
                   <Waveform isActive={isRecording || isProcessing} variant="neon" barCount={50} />
                 </div>
 
-                {/* Record button */}
+      
                 <div className="flex justify-center">
                   <RecorderButton size="lg" variant="neon" onRecordingComplete={handleRecordingComplete} />
                 </div>
 
-                {/* Upload option */}
+             
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border/30" />
@@ -101,7 +93,7 @@ export function AILabMode() {
               </div>
             </div>
 
-            {/* Stats panel */}
+         
             <div className="grid grid-cols-3 gap-4">
               {[
                 { label: "Processed", value: transcriptions.length, icon: Activity },
@@ -117,7 +109,7 @@ export function AILabMode() {
             </div>
           </div>
 
-          {/* Right: Diagnostic panel */}
+       
           <div className="space-y-6">
             <div className="rounded-xl border border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden h-full">
               <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">

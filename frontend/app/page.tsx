@@ -14,7 +14,7 @@ export default async function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
+
       <header className="border-b border-border/50 px-4 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -44,15 +44,8 @@ export default async function LandingPage() {
         </div>
       </header>
 
-      {/* Hero */}
       <main className="flex-1 flex items-center justify-center px-4 py-16">
         <div className="max-w-3xl mx-auto text-center">
-          {/* <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-sm mb-6">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-            </svg>
-            AI-Powered Voice Processing
-          </div> */}
 
           <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground mb-6 text-balance">
             Turn messy voice notes into{" "}
@@ -82,7 +75,6 @@ export default async function LandingPage() {
             </Link>
           </div>
 
-          {/* Features */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
             <div className="p-6 rounded-xl bg-card border border-border">
               <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-4 mx-auto">
@@ -95,8 +87,7 @@ export default async function LandingPage() {
                   />
                 </svg>
               </div>
-              <h3 className="font-semibold text-foreground mb-2">Voice Recording</h3>
-              <p className="text-sm text-muted-foreground">Record directly in browser or upload existing audio files</p>
+              <h3 className="font-semibold text-foreground mb-2">Record</h3>
             </div>
 
             <div className="p-6 rounded-xl bg-card border border-border">
@@ -110,8 +101,7 @@ export default async function LandingPage() {
                   />
                 </svg>
               </div>
-              <h3 className="font-semibold text-foreground mb-2">AI Transcription</h3>
-              <p className="text-sm text-muted-foreground">Powered by OpenAI, Anthropic, or Google models</p>
+              <h3 className="font-semibold text-foreground mb-2">Transcribe</h3>
             </div>
 
             <div className="p-6 rounded-xl bg-card border border-border">
@@ -125,8 +115,7 @@ export default async function LandingPage() {
                   />
                 </svg>
               </div>
-              <h3 className="font-semibold text-foreground mb-2">Task Extraction</h3>
-              <p className="text-sm text-muted-foreground">Automatically extract and organize actionable items</p>
+              <h3 className="font-semibold text-foreground mb-2">Sync</h3>
             </div>
           </div>
         </div>

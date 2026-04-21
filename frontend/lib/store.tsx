@@ -9,6 +9,7 @@ export interface Task {
   completed: boolean
   priority: "high" | "medium" | "low"
   dueDate?: string
+  syncState?: "local" | "syncing" | "synced" | "error"
 }
 
 export interface VoiceNote {
@@ -21,55 +22,38 @@ export interface VoiceNote {
   cleanedText: string
   tasks: Task[]
   status: "processing" | "complete" | "error"
+  syncState?: "local" | "syncing" | "synced" | "error"
 }
 
 export interface ServiceConfig {
   provider: string
   model: string
   apiKey: string
-  isMCP?: boolean
-  mcpUrl?: string
-}
-
-export interface MCPServer {
-  id: string
-  name: string
-  url: string
-  status: "connected" | "disconnected" | "connecting"
 }
 
 interface Settings {
   theme: "dark" | "light"
   voiceProvider: ServiceConfig
   taskComposer: ServiceConfig
-  mcpServers: MCPServer[]
 }
 
+const SUPPORTED_VOICE_PROVIDERS = new Set(["openai", "groq", "google"])
+const SUPPORTED_COMPOSER_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "xai"])
+
 interface StoreContextType {
-  // Theme
   theme: "dark" | "light"
   setTheme: (theme: "dark" | "light") => void
 
-  // Settings
   settings: Settings
   updateSettings: (updates: Partial<Settings>) => void
   updateVoiceConfig: (updates: Partial<ServiceConfig>) => void
   updateComposerConfig: (updates: Partial<ServiceConfig>) => void
-  
-  // MCP Management
-  addMCPServer: (server: Omit<MCPServer, "status">) => void
-  removeMCPServer: (id: string) => void
-  updateMCPServerStatus: (id: string, status: MCPServer["status"]) => void
-  connectToMCPServer: (id: string, url: string) => Promise<void>
-  disconnectFromMCPServer: (id: string) => Promise<void>
 
-  // Voice Notes
   voiceNotes: VoiceNote[]
   setVoiceNotes: (notes: VoiceNote[]) => void
   addVoiceNote: (note: VoiceNote) => void
   updateVoiceNote: (id: string, updates: Partial<VoiceNote>) => void
 
-  // Processing state
   isProcessing: boolean
   setIsProcessing: (v: boolean) => void
   processingStep: string | null
@@ -88,7 +72,81 @@ const defaultSettings: Settings = {
     model: "gpt-4o-mini",
     apiKey: "",
   },
-  mcpServers: [],
+}
+
+function sanitizeTask(raw: unknown): Task {
+  const parsed = raw && typeof raw === "object" ? (raw as Partial<Task>) : {}
+  const priority = parsed.priority === "high" || parsed.priority === "medium" || parsed.priority === "low"
+    ? parsed.priority
+    : "medium"
+
+  return {
+    id: typeof parsed.id === "string" ? parsed.id : crypto.randomUUID(),
+    text: typeof parsed.text === "string" ? parsed.text : "Untitled task",
+    completed: Boolean(parsed.completed),
+    priority,
+    dueDate: typeof parsed.dueDate === "string" ? parsed.dueDate : undefined,
+    syncState:
+      parsed.syncState === "local" || parsed.syncState === "syncing" || parsed.syncState === "synced" || parsed.syncState === "error"
+        ? parsed.syncState
+        : "local",
+  }
+}
+
+function sanitizeVoiceNotes(raw: unknown): VoiceNote[] {
+  if (!Array.isArray(raw)) {
+    return []
+  }
+
+  return raw
+    .map((item) => {
+      const parsed = item && typeof item === "object" ? (item as Partial<VoiceNote>) : {}
+      const createdAt = parsed.createdAt ? new Date(parsed.createdAt) : new Date()
+      if (Number.isNaN(createdAt.getTime())) {
+        return null
+      }
+
+      return {
+        id: typeof parsed.id === "string" ? parsed.id : crypto.randomUUID(),
+        title: typeof parsed.title === "string" ? parsed.title : "Untitled recording",
+        createdAt,
+        duration: typeof parsed.duration === "number" ? parsed.duration : 0,
+        audioUrl: typeof parsed.audioUrl === "string" ? parsed.audioUrl : undefined,
+        rawTranscription: typeof parsed.rawTranscription === "string" ? parsed.rawTranscription : "",
+        cleanedText: typeof parsed.cleanedText === "string" ? parsed.cleanedText : "",
+        tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(sanitizeTask) : [],
+        status: parsed.status === "processing" || parsed.status === "error" ? parsed.status : "complete",
+        syncState:
+          parsed.syncState === "local" || parsed.syncState === "syncing" || parsed.syncState === "synced" || parsed.syncState === "error"
+            ? parsed.syncState
+            : "local",
+      }
+    })
+    .filter((note): note is VoiceNote => Boolean(note))
+}
+
+function sanitizeSettings(raw: unknown): Settings {
+  const parsed = (raw && typeof raw === "object") ? (raw as Partial<Settings>) : {}
+  const voiceProvider = parsed.voiceProvider ?? defaultSettings.voiceProvider
+  const taskComposer = parsed.taskComposer ?? defaultSettings.taskComposer
+
+  return {
+    theme: parsed.theme === "light" ? "light" : defaultSettings.theme,
+    voiceProvider: {
+      ...defaultSettings.voiceProvider,
+      ...voiceProvider,
+      provider: SUPPORTED_VOICE_PROVIDERS.has(voiceProvider.provider ?? "")
+        ? voiceProvider.provider!
+        : defaultSettings.voiceProvider.provider,
+    },
+    taskComposer: {
+      ...defaultSettings.taskComposer,
+      ...taskComposer,
+      provider: SUPPORTED_COMPOSER_PROVIDERS.has(taskComposer.provider ?? "")
+        ? taskComposer.provider!
+        : defaultSettings.taskComposer.provider,
+    },
+  }
 }
 
 const StoreContext = createContext<StoreContextType | null>(null)
@@ -99,20 +157,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStep, setProcessingStep] = useState<string | null>(null)
 
-  // Load settings from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("taskwhisper-settings")
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        setSettings((prev) => ({ ...prev, ...parsed }))
+        setSettings(sanitizeSettings(parsed))
       } catch (e) {
         console.error("Failed to parse settings", e)
       }
     }
   }, [])
 
-  // Apply theme to document
+  useEffect(() => {
+    const savedNotes = localStorage.getItem("taskwhisper-voice-notes")
+    if (savedNotes) {
+      try {
+        const parsed = JSON.parse(savedNotes)
+        setVoiceNotes(sanitizeVoiceNotes(parsed))
+      } catch (e) {
+        console.error("Failed to parse voice notes", e)
+      }
+    }
+  }, [])
+
   useEffect(() => {
     if (settings.theme === "dark") {
       document.documentElement.classList.add("dark")
@@ -120,6 +188,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       document.documentElement.classList.remove("dark")
     }
   }, [settings.theme])
+
+  useEffect(() => {
+    localStorage.setItem("taskwhisper-voice-notes", JSON.stringify(voiceNotes))
+  }, [voiceNotes])
 
   const updateSettings = useCallback((updates: Partial<Settings>) => {
     setSettings((prev) => {
@@ -151,46 +223,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const addMCPServer = useCallback((server: Omit<MCPServer, "status">) => {
-    updateSettings({
-      mcpServers: [...settings.mcpServers, { ...server, status: "disconnected" }]
-    })
-  }, [settings.mcpServers, updateSettings])
-
-  const removeMCPServer = useCallback((id: string) => {
-    updateSettings({
-      mcpServers: settings.mcpServers.filter(s => s.id !== id)
-    })
-  }, [settings.mcpServers, updateSettings])
-
-  const updateMCPServerStatus = useCallback((id: string, status: MCPServer["status"]) => {
-    setSettings((prev) => {
-      const newSettings = {
-        ...prev,
-        mcpServers: prev.mcpServers.map(s => s.id === id ? { ...s, status } : s)
-      }
-      return newSettings
-    })
-  }, [])
-
-  const connectToMCPServer = useCallback(async (id: string, url: string) => {
-    updateMCPServerStatus(id, "connecting")
-    try {
-      const { mcpManager } = await import("./mcp")
-      await mcpManager.connect(id, url)
-      updateMCPServerStatus(id, "connected")
-    } catch (e) {
-      updateMCPServerStatus(id, "disconnected")
-      console.error("MCP Connection failed", e)
-    }
-  }, [updateMCPServerStatus])
-
-  const disconnectFromMCPServer = useCallback(async (id: string) => {
-    const { mcpManager } = await import("./mcp")
-    await mcpManager.disconnect(id)
-    updateMCPServerStatus(id, "disconnected")
-  }, [updateMCPServerStatus])
-
   const setTheme = useCallback((theme: "dark" | "light") => {
     updateSettings({ theme })
   }, [updateSettings])
@@ -212,11 +244,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         updateSettings,
         updateVoiceConfig,
         updateComposerConfig,
-        addMCPServer,
-        removeMCPServer,
-        updateMCPServerStatus,
-        connectToMCPServer,
-        disconnectFromMCPServer,
         voiceNotes,
         setVoiceNotes,
         addVoiceNote,

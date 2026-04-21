@@ -33,7 +33,6 @@ export function ProcessingTimeline({ variant = "default", className }: Processin
   const { processingState, advanceProcessing } = useApp()
   const { currentStep, completedSteps } = processingState
 
-  // Auto-advance for demo
   useEffect(() => {
     if (currentStep && currentStep !== "complete") {
       const timer = setTimeout(advanceProcessing, 1500)
@@ -83,7 +82,6 @@ export function ProcessingTimeline({ variant = "default", className }: Processin
 
         return (
           <div key={step} className="flex gap-4">
-            {/* Step indicator */}
             <div className="flex flex-col items-center">
               <div
                 className={cn(
@@ -122,8 +120,6 @@ export function ProcessingTimeline({ variant = "default", className }: Processin
                 />
               )}
             </div>
-
-            {/* Step content */}
             <div className="flex-1 pb-8">
               <h4
                 className={cn(

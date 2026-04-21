@@ -1,59 +1,59 @@
-import asyncio
 import json
+import logging
 from typing import Any
 
+from redis import asyncio as redis
 
-class InMemoryCache:
-    def __init__(self) -> None:
-        self._data: dict[str, tuple[Any, float]] = {}
-        self._lock = asyncio.Lock()
+from .config import get_settings
 
-    async def set(self, key: str, value: Any, ex: int | None = None) -> None:
-        async with self._lock:
-            ttl = asyncio.get_event_loop().time() + ex if ex else None
-            self._data[key] = (value, ttl or 0)
-
-    async def get(self, key: str) -> Any | None:
-        async with self._lock:
-            item = self._data.get(key)
-            if not item:
-                return None
-            value, ttl = item
-            if ttl and ttl < asyncio.get_event_loop().time():
-                self._data.pop(key, None)
-                return None
-            return value
-
-    async def delete(self, key: str) -> None:
-        async with self._lock:
-            self._data.pop(key, None)
+logger = logging.getLogger("cache")
 
 
 class Cache:
     def __init__(self) -> None:
-        self.client: InMemoryCache | None = None
+        self.client: redis.Redis | None = None
 
     async def init(self) -> None:
-        self.client = InMemoryCache()
+        settings = get_settings()
+        if not settings.redis_url:
+            logger.warning("REDIS_URL is not configured; cache disabled")
+            self.client = None
+            return
+
+        self.client = redis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            await self.client.ping()
+        except Exception:
+            logger.exception("Failed to initialize Redis cache; cache disabled")
+            self.client = None
 
     async def set_json(self, key: str, value: Any, ex: int | None = None) -> None:
-        assert self.client
+        if not self.client:
+            return
         payload = json.dumps(value)
         await self.client.set(key, payload, ex=ex)
 
     async def get_json(self, key: str) -> Any | None:
-        assert self.client
+        if not self.client:
+            return None
         data = await self.client.get(key)
         if data is None:
             return None
         try:
             return json.loads(data)
         except Exception:
+            logger.exception("Failed to decode cached JSON for key %s", key)
             return None
 
     async def delete(self, key: str) -> None:
-        assert self.client
+        if not self.client:
+            return
         await self.client.delete(key)
+
+    async def close(self) -> None:
+        if self.client:
+            await self.client.aclose()
+            self.client = None
 
 
 cache = Cache()

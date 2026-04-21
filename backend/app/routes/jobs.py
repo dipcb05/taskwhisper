@@ -59,7 +59,7 @@ async def get_job(job_id: str, user=Depends(get_current_user)) -> JobResponse:
 
 @router.get("", response_model=list[JobResponse])
 async def list_jobs(user=Depends(get_current_user)) -> list[JobResponse]:
-    cursor = db.get_db()[Job.collection].find({"user_id": user.uid}).sort("created_at", -1).limit(25)
+    cursor = db.get_db()[Job.collection].find({"user_id": user.uid}).sort("created_at", -1)
     results = []
     async for doc in cursor:
         results.append(

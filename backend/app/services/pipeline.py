@@ -14,6 +14,7 @@ from ..models.job import Job, JobStatus
 from ..prompts.prompt_registry import PromptRegistry
 from ..schemas.job import PipelineOptions
 from ..services.audio_cleanup import get_cleanup_adapters
+from ..services.blob_storage import BlobStorageService
 from ..services.stt import get_stt_adapters
 from ..services.text_cleaning import TextCleaningService
 from ..services.task_extraction import TaskExtractionService
@@ -31,6 +32,7 @@ class PipelineService:
         self.settings = get_settings()
         self.cleanup_adapters = get_cleanup_adapters()
         self.stt_adapters = get_stt_adapters()
+        self.blob_storage = BlobStorageService()
         self.text_service = TextCleaningService(registry)
         self.extraction_service = TaskExtractionService(registry)
         self.connectors = get_connectors()
@@ -58,6 +60,7 @@ class PipelineService:
     async def run_job(self, job_id: str, user_id: str, file_path: str, options: PipelineOptions, audio_hash: str) -> None:
         db = db_module.get_db()
         config_hash = self._hash_config(options)
+        local_input_path: str | None = None
         try:
             cached = await CachedResult.get(db, hash_value=audio_hash, config_hash=config_hash)
             if cached:
@@ -66,10 +69,15 @@ class PipelineService:
                 return
 
             await Job.update_status(db, job_id, JobStatus.PROCESSING)
+            local_input_path = await self._localize_audio(file_path)
             cleanup_adapter = self.cleanup_adapters.get(options.cleaning_engine)
             if not cleanup_adapter:
                 raise ServiceError("voice_cleanup", "Unknown cleaning engine", code="unknown_engine")
-            cleanup_result = await self._run_stage(cleanup_adapter.run(file_path, options.provider_options.get("cleanup", {})), job_id, "voice_cleanup")
+            cleanup_result = await self._run_stage(
+                cleanup_adapter.run(local_input_path, options.provider_options.get("cleanup", {})),
+                job_id,
+                "voice_cleanup",
+            )
 
             stt_adapter = self.stt_adapters.get(options.stt_engine)
             if not stt_adapter:
@@ -95,6 +103,7 @@ class PipelineService:
             )
 
             result_payload = {
+                "audio_url": file_path,
                 "cleaned_transcript": cleaned["cleaned_text"],
                 "translated_transcript": translated["translated_text"] if translated else None,
                 "tasks": tasks["tasks"],
@@ -107,7 +116,18 @@ class PipelineService:
                 if not connector:
                     export_outputs[target] = {"error": "Unknown connector"}
                     continue
-                payload = await connector.prepare_payload(result_payload["tasks"])
+                payload = await connector.prepare_payload(
+                    [
+                        {
+                            "id": job_id,
+                            "title": f"Recording {job_id}",
+                            "audio_url": result_payload.get("audio_url"),
+                            "cleaned_text": result_payload.get("cleaned_transcript"),
+                            "raw_transcription": result_payload.get("cleaned_transcript"),
+                            "tasks": result_payload["tasks"],
+                        }
+                    ]
+                )
                 integration_settings = await db["integrations"].find_one({"user_id": user_id, "provider": target}) or {}
                 export_outputs[target] = await connector.send(payload, integration_settings.get("config", {}))
             if export_outputs:
@@ -123,6 +143,13 @@ class PipelineService:
             await self._emit(job_id, "pipeline", "failed", error={"message": str(exc)})
             await Job.update_status(db, job_id, JobStatus.FAILED)
             logger.exception("Unexpected pipeline error")
+        finally:
+            self._cleanup_file(local_input_path)
+            cleanup_path = None
+            if "cleanup_result" in locals():
+                cleanup_path = cleanup_result.get("enhanced_path")
+            if cleanup_path and cleanup_path != local_input_path:
+                self._cleanup_file(cleanup_path)
 
     def _hash_config(self, options: PipelineOptions) -> str:
         config_data = options.model_dump()
@@ -133,12 +160,34 @@ class PipelineService:
         return hashlib.sha256(payload.encode()).hexdigest()
 
     async def save_upload(self, data: bytes, filename: str, job_id: str) -> str:
-        os.makedirs(self.settings.file_storage_path, exist_ok=True)
-        file_path = os.path.join(self.settings.file_storage_path, f"{job_id}-{filename}")
+        if self.blob_storage.is_configured():
+            uploaded = await self.blob_storage.upload_audio(data, filename, job_id)
+            return uploaded.get("download_url") or uploaded["url"]
+
+        os.makedirs(self.settings.effective_file_storage_path, exist_ok=True)
+        file_path = os.path.join(self.settings.effective_file_storage_path, f"{job_id}-{filename}")
         await asyncio.to_thread(self._write_file, file_path, data)
+        return file_path
+
+    async def _localize_audio(self, file_path: str) -> str:
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            suffix = os.path.splitext(file_path.split("?")[0])[1]
+            return await self.blob_storage.download_to_tempfile(file_path, suffix=suffix)
         return file_path
 
     @staticmethod
     def _write_file(path: str, content: bytes) -> None:
         with open(path, "wb") as f:
             f.write(content)
+
+    @staticmethod
+    def _cleanup_file(path: str | None) -> None:
+        if not path:
+            return
+        if path.startswith("http://") or path.startswith("https://"):
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            logger.warning("Failed to remove temporary file %s", path)

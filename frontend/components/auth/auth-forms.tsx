@@ -22,7 +22,6 @@ export function LoginForm({ onSubmit }: { onSubmit?: (email: string, password: s
     setIsLoading(true)
 
     try {
-      // Mock implementation
       console.log("[v0] Login attempt:", email)
       toast({
         title: "Demo Mode",

@@ -5,28 +5,23 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
 import type { ViewMode, Transcription, ProcessingState, ProcessingStep } from "./types"
 
 interface AppContextType {
-  // View mode
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
 
-  // Theme
   isDark: boolean
   toggleTheme: () => void
 
-  // Transcriptions
   transcriptions: Transcription[]
   selectedTranscription: Transcription | null
   setSelectedTranscription: (t: Transcription | null) => void
   addTranscription: (t: Transcription) => void
   updateTranscription: (id: string, updates: Partial<Transcription>) => void
 
-  // Processing
   processingState: ProcessingState
   startProcessing: () => void
   advanceProcessing: () => void
   resetProcessing: () => void
 
-  // Recording
   isRecording: boolean
   setIsRecording: (v: boolean) => void
   recordingTime: number
@@ -113,7 +108,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
 
-  // Sync dark mode with document
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add("dark")
@@ -122,7 +116,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isDark])
 
-  // Auto-switch to dark mode for AI Lab
   useEffect(() => {
     if (viewMode === "ai-lab" && !isDark) {
       setIsDark(true)

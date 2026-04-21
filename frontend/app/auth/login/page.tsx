@@ -10,15 +10,37 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { TurnstileWidget, type TurnstileWidgetHandle } from "@/components/auth/turnstile-widget"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const widgetRef = useRef<TurnstileWidgetHandle | null>(null)
   const router = useRouter()
+
+  const verifyTurnstile = async () => {
+    if (!turnstileToken) {
+      throw new Error("Please complete the security check.")
+    }
+
+    const response = await fetch("/api/turnstile/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ token: turnstileToken }),
+    })
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      throw new Error(payload?.error || "Turnstile verification failed.")
+    }
+  }
 
   const establishSession = async (idToken: string) => {
     const response = await fetch("/api/auth/session", {
@@ -35,7 +57,6 @@ export default function LoginPage() {
         const payload = await response.json()
         message = payload.error || message
       } catch {
-        // Ignore non-JSON error bodies.
       }
       throw new Error(message)
     }
@@ -47,6 +68,7 @@ export default function LoginPage() {
     setError(null)
 
     try {
+      await verifyTurnstile()
       const userCredential = await signInWithEmailAndPassword(auth, email, password)
       const idToken = await userCredential.user.getIdToken()
       await establishSession(idToken)
@@ -55,6 +77,7 @@ export default function LoginPage() {
     } catch (error: any) {
       setError(error?.message || "An error occurred during sign in")
     } finally {
+      widgetRef.current?.reset()
       setIsLoading(false)
     }
   }
@@ -64,6 +87,7 @@ export default function LoginPage() {
     setIsLoading(true)
     setError(null)
     try {
+      await verifyTurnstile()
       const userCredential = await signInWithPopup(auth, provider)
       const idToken = await userCredential.user.getIdToken()
       await establishSession(idToken)
@@ -72,6 +96,7 @@ export default function LoginPage() {
     } catch (error: any) {
       setError(error?.message || "An error occurred during Google sign in")
     } finally {
+      widgetRef.current?.reset()
       setIsLoading(false)
     }
   }
@@ -135,8 +160,9 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
+                <TurnstileWidget ref={widgetRef} onTokenChange={setTurnstileToken} />
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading || !turnstileToken}>
                   {isLoading ? "Signing in..." : "Sign In"}
                 </Button>
               </div>
@@ -155,7 +181,7 @@ export default function LoginPage() {
                 variant="outline"
                 className="w-full"
                 onClick={handleGoogleLogin}
-                disabled={isLoading}
+                disabled={isLoading || !turnstileToken}
               >
                 <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                   <path

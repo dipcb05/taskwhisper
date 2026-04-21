@@ -27,7 +27,6 @@ export function DetailView({ transcription, onBack, variant = "default", classNa
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      {/* Header */}
       <div className={cn("flex items-center gap-3 p-4 border-b", variant === "neon" && "border-border/30")}>
         <Button
           variant="ghost"
@@ -47,8 +46,6 @@ export function DetailView({ transcription, onBack, variant = "default", classNa
         </div>
         <ExportMenu transcription={transcription} variant={variant === "neon" ? "neon" : "default"} />
       </div>
-
-      {/* Audio preview */}
       <div className={cn("p-4 border-b", variant === "neon" && "border-border/30 bg-background/30")}>
         <div className="flex items-center gap-4">
           <Button
@@ -72,7 +69,7 @@ export function DetailView({ transcription, onBack, variant = "default", classNa
         </div>
       </div>
 
-      {/* Results */}
+  
       <div className="flex-1 overflow-auto p-4">
         <ResultTabs
           transcription={transcription}

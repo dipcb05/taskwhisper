@@ -57,7 +57,7 @@ export function MobileMode() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
+
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
@@ -76,22 +76,20 @@ export function MobileMode() {
         </div>
       </header>
 
-      {/* Main content - centered record button */}
       <main className="flex-1 flex flex-col items-center justify-center p-6">
-        {/* Waveform visualization */}
+   
         <div className="w-full max-w-xs h-20 mb-8 rounded-xl bg-muted/30 border overflow-hidden">
           <Waveform isActive={isRecording} barCount={30} />
         </div>
 
-        {/* Large record button */}
+   
         <RecorderButton size="xl" variant="mobile" onRecordingComplete={handleRecordingComplete} />
 
-        {/* Upload button */}
+     
         <Button
           variant="outline"
           className="mt-8 bg-transparent"
           onClick={() => {
-            // Trigger file input
             const input = document.createElement("input")
             input.type = "file"
             input.accept = "audio/*"
@@ -106,7 +104,7 @@ export function MobileMode() {
           Upload Audio
         </Button>
 
-        {/* Quick stats */}
+  
         <div className="flex items-center gap-6 mt-12 text-sm text-muted-foreground">
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">{transcriptions.length}</div>
@@ -122,7 +120,7 @@ export function MobileMode() {
         </div>
       </main>
 
-      {/* Bottom sheets */}
+   
       {sheetView !== "none" && (
         <div
           className="fixed inset-0 z-50 bg-black/50"
@@ -140,12 +138,12 @@ export function MobileMode() {
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Sheet handle */}
+          
             <div className="flex justify-center py-3">
               <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
             </div>
 
-            {/* History view */}
+          
             {sheetView === "history" && (
               <div className="flex-1 overflow-auto px-4 pb-8">
                 <div className="flex items-center justify-between mb-4">
@@ -175,7 +173,6 @@ export function MobileMode() {
               </div>
             )}
 
-            {/* Detail view */}
             {sheetView === "detail" && selectedItem && (
               <div className="flex-1 overflow-auto px-4 pb-8">
                 <div className="flex items-center justify-between mb-4">
@@ -195,7 +192,7 @@ export function MobileMode() {
 
                 <h2 className="text-lg font-semibold mb-2">{selectedItem.title}</h2>
 
-                {/* Audio player */}
+             
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 mb-4">
                   <Button variant="outline" size="icon" onClick={() => setIsPlaying(!isPlaying)} className="shrink-0">
                     {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -206,7 +203,7 @@ export function MobileMode() {
                   <span className="text-sm font-mono">{formatDuration(selectedItem.duration)}</span>
                 </div>
 
-                {/* Accordion content */}
+            
                 <Accordion type="single" collapsible className="w-full">
                   <AccordionItem value="transcription">
                     <AccordionTrigger>Raw Transcription</AccordionTrigger>
@@ -232,7 +229,6 @@ export function MobileMode() {
               </div>
             )}
 
-            {/* Processing view */}
             {sheetView === "processing" && (
               <div className="flex-1 overflow-auto px-4 pb-8">
                 <div className="flex items-center justify-between mb-4">

@@ -4,13 +4,11 @@ import type { NextRequest } from "next/server"
 export async function middleware(request: NextRequest) {
   const session = request.cookies.get("session")?.value
 
-  // Protected routes
   const protectedRoutes = ["/dashboard", "/voice", "/settings"]
   const isProtectedRoute = protectedRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   )
 
-  // Auth routes
   const isAuthRoute = request.nextUrl.pathname.startsWith("/auth")
 
   if (isProtectedRoute && !session) {
